@@ -1,2 +1,2 @@
 # jagawana-ai
-Explainable Machine Learning and Atmospheric Dispersion Modeling for Peatland Fire Risk and Downwind Haze Forecasting in Indonesia
+Explainable machine learning for peatland fire risk prediction in Indonesia
