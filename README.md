@@ -11,7 +11,7 @@ Jagawana ("forest ranger") predicts which areas of Sumatra and Kalimantan are mo
 TODO: 2-3 sentences on peatland fires and haze in Indonesia, with a cited source.
 
 ## What it does
-- Predicts 7-day fire risk per 0.25° grid cell
+- Predicts 7-day fire risk per 0.5° grid cell
 - Explains the main drivers of risk (SHAP)
 - TODO: smoke drift view (only if finished)
 
