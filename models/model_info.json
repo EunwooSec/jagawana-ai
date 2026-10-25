@@ -1,0 +1,27 @@
+{
+  "features": [
+    "fires_7d",
+    "fires_30d",
+    "fires_90d",
+    "days_since_fire",
+    "nb_fires_7d",
+    "nb_fires_30d",
+    "rain_7d",
+    "rain_14d",
+    "rain_30d",
+    "rain_60d",
+    "dry_streak",
+    "tmax_7d",
+    "rh_7d",
+    "wind_7d",
+    "month_sin",
+    "month_cos",
+    "lat",
+    "lon"
+  ],
+  "threshold": 0.3222421705722809,
+  "horizon_days": 7,
+  "train_end": "2022-12-24",
+  "validation": "2023",
+  "test_start": "2024-01-01"
+}
