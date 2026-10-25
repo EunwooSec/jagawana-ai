@@ -20,7 +20,11 @@ TODO: 2-3 sentences on peatland fires and haze in Indonesia, with a cited source
 - Open-Meteo Historical Weather API (rainfall, temperature, humidity, wind)
 
 ## Setup
-TODO: Python version, then `pip install -r requirements.txt`
+Requires Python 3.10 or newer (developed on Python 3.12).
+
+    git clone https://github.com/EunwooSec/jagawana-ai.git
+    cd jagawana-ai
+    python -m pip install -r requirements.txt
 
 ## How to run
 TODO: ordered commands for each script
@@ -29,7 +33,10 @@ TODO: ordered commands for each script
 TODO: metrics table and figures from results/figures
 
 ## Limitations
-TODO
+- The model estimates risk, not certainty. It does not predict exact fire locations or times.
+- Hotspots are satellite detections, not confirmed fires, and clouds or satellite revisit gaps can hide fires.
+- Weather comes from reanalysis data (Open-Meteo), not ground stations.
+- Trained and tested only on Sumatra and Kalimantan. It should not be used for other regions or other fire types without retraining.
 
 ## License
 MIT
