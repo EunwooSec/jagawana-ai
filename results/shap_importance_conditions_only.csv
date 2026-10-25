@@ -1,0 +1,17 @@
+,mean_abs_shap
+lon,0.3360053
+rain_60d,0.2717661
+lat,0.25386548
+tmax_7d,0.2470052
+month_cos,0.22798386
+rh_7d,0.17901056
+dry_streak,0.17650202
+month_sin,0.15955302
+rh_7d_anom,0.15830746
+tmax_7d_anom,0.12605795
+wind_7d,0.11041059
+rain_7d,0.10843299
+rain_60d_anom,0.06922887
+rain_30d_anom,0.058259223
+rain_30d,0.049936235
+rain_14d,0.022205275

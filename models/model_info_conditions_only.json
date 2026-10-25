@@ -1,0 +1,27 @@
+{
+  "features": [
+    "rain_7d",
+    "rain_14d",
+    "rain_30d",
+    "rain_60d",
+    "dry_streak",
+    "tmax_7d",
+    "rh_7d",
+    "wind_7d",
+    "month_sin",
+    "month_cos",
+    "lat",
+    "lon",
+    "rain_30d_anom",
+    "rain_60d_anom",
+    "rh_7d_anom",
+    "tmax_7d_anom"
+  ],
+  "threshold": 0.28109559416770935,
+  "anomaly_sources": [
+    "rain_30d",
+    "rain_60d",
+    "rh_7d",
+    "tmax_7d"
+  ]
+}
