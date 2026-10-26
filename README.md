@@ -2,26 +2,26 @@
 
 Explainable machine learning for peatland fire risk prediction and resource allocation in Indonesia.
 
-Jagawana ("forest ranger") predicts which areas of Sumatra and Kalimantan are most likely to see fire hotspots in the next 7 days. Going beyond traditional maps, it explains the causes of the risk and acts as a Decision-Support Engine to recommend exactly where to allocate limited firefighting resources.
+Jagawana ("forest ranger") predicts which areas of Sumatra and Kalimantan are most likely to see fire hotspots in the next 7 days. Going beyond traditional maps, it explains the *causes* of the risk and acts as a **Decision-Support Engine** to recommend exactly where to allocate limited firefighting resources.
 
-Team Soaring Eagles: Jin Woori, Rashad Syaryf
+**Team Soaring Eagles:** Jin Woori, Rashad Syaryf
 
-Competition: GENIUS Olympiad, AI Discipline (Indonesia national selection)
+**Competition:** GENIUS Olympiad, AI Discipline (Indonesia national selection)
 
 ## Problem
-Indonesia suffers from severe annual peatland and forest fires (Karhutla), causing transboundary haze, massive carbon emissions, and respiratory illnesses. While satellite hotspot maps exist, they are reactive. They show where fires are, but they do not predict future risk, explain the underlying causes (e.g., peat dryness vs. human activity), or help government agencies decide where to deploy their limited firefighting teams.
+Indonesia suffers from severe annual peatland and forest fires (Karhutla), causing transboundary haze, massive carbon emissions, and respiratory illnesses. While satellite hotspot maps exist, they are reactive. They show where fires *are*, but they do not predict future risk, explain the underlying causes (e.g., peat dryness vs. human activity), or help government agencies decide where to deploy their limited firefighting teams.
 
 ## What it does (Novelty & Innovation)
-- Predicts Risk: Forecasts, for each 0.5° grid cell on each day, whether at least one fire hotspot will appear in the next 7 days.
-- Model Comparison: Compares four approaches: a simple persistence rule, Logistic Regression, Random Forest, and XGBoost (main model).
-- Explains Causes (SHAP): Uses TreeSHAP to explain why a cell is at risk, grouping factors into human-readable causes (e.g., "Dry peat streak", "High wind", "Recent nearby fires").
-- Resource Allocation Command Center: Translates the cause weights into a priority score. The user inputs how many personnel teams are available, and a greedy optimization algorithm outputs a deployment map and action plan (e.g., "Deploy 1 Rapid Suppression Team + 1 water pump").
-- Live Data Integration: Connects to the live NASA FIRMS API to overlay real-time 24-hour hotspots alongside the 7-day predictive risk map.
-- Spatial Validation: Tests whether the model transfers between islands (trained on Sumatra, tested on Kalimantan, and the reverse).
+- **Predicts Risk:** Forecasts, for each 0.5° grid cell on each day, whether at least one fire hotspot will appear in the next 7 days.
+- **Model Comparison:** Compares four approaches: a simple persistence rule, Logistic Regression, Random Forest, and XGBoost (main model).
+- **Explains Causes (SHAP):** Uses TreeSHAP to explain *why* a cell is at risk, grouping factors into human-readable causes (e.g., "Dry peat streak", "High wind", "Recent nearby fires").
+- **Resource Allocation Command Center:** Translates the cause weights into a priority score. The user inputs how many personnel teams are available, and a greedy optimization algorithm outputs a deployment map and action plan (e.g., "Deploy 1 Rapid Suppression Team + 1 water pump").
+- **Live Data Integration:** Connects to the live NASA FIRMS API to overlay real-time 24-hour hotspots alongside the 7-day predictive risk map.
+- **Spatial Validation:** Tests whether the model transfers between islands (trained on Sumatra, tested on Kalimantan, and the reverse).
 
 ## Data
-- NASA FIRMS VIIRS S-NPP 375 m active fire detections, 2019-2025, Indonesia (hotspots). Kept: vegetation fires (type 0) with nominal or high confidence.
-- NASA POWER daily meteorology (rainfall, maximum temperature, relative humidity, wind speed).
+- **NASA FIRMS** VIIRS S-NPP 375 m active fire detections, 2019-2025, Indonesia (hotspots). Kept: vegetation fires (type 0) with nominal or high confidence.
+- **NASA POWER** daily meteorology (rainfall, maximum temperature, relative humidity, wind speed).
 
 The raw data files are not stored in this repository because of their size. The scripts below rebuild everything from the public sources.
 
@@ -34,25 +34,30 @@ The raw data files are not stored in this repository because of their size. The 
 
 ## Cost Analysis & Scalability
 Our solution is designed to be highly cost-effective and scalable for deployment in developing nations:
-- Zero Data Cost: Relies entirely on free, open-source satellite data from NASA (FIRMS and POWER).
-- Low Compute Requirements: The 0.5° grid resolution and XGBoost architecture are lightweight. The model trains in minutes on a standard laptop CPU, avoiding the need for expensive GPU clusters or supercomputers.
-- Deployment: The frontend uses Streamlit, which can be hosted on a cloud server for under $10/month (or hosted on-premise by local government agencies like BNPB for free).
+- **Zero Data Cost:** Relies entirely on free, open-source satellite data from NASA (FIRMS and POWER).
+- **Low Compute Requirements:** The 0.5° grid resolution and XGBoost architecture are lightweight. The model trains in minutes on a standard laptop CPU, avoiding the need for expensive GPU clusters or supercomputers.
+- **Deployment:** The frontend uses Streamlit, which can be hosted on a cloud server for under $10/month (or hosted on-premise by local government agencies like BNPB for free).
 
 ## Setup
 Requires Python 3.10 or newer (developed on Python 3.12).
 
-git clone https://github.com/EunwooSec/jagawana-ai.git
-cd jagawana-ai
-python -m pip install -r requirements.txt
+    git clone https://github.com/EunwooSec/jagawana-ai.git
+    cd jagawana-ai
+    python -m pip install -r requirements.txt
 
 ## How to run
-1. Download the FIRMS file: on the NASA FIRMS Archive Download page, request VIIRS S-NPP, country Indonesia, CSV, 2019-01-01 to 2025-12-31. Save the extracted CSV as data/raw/fire_archive_SV-C2_830533.csv (or change FIRMS_FILE in src/build_dataset.py to your file name).
+1. Download the FIRMS file: on the NASA FIRMS Archive Download page, request VIIRS S-NPP, country Indonesia, CSV, 2019-01-01 to 2025-12-31. Save the extracted CSV as `data/raw/fire_archive_SV-C2_830533.csv` (or change `FIRMS_FILE` in `src/build_dataset.py` to your file name).
 2. Build the dataset (downloads and caches weather from NASA POWER, then builds features and labels):
-   python src\build_dataset.py
-3. Train and evaluate the models (writes tables to results/, figures to results/figures/, the model to models/):
-   python src\train_models.py
+
+    python src\build_dataset.py
+
+3. Train and evaluate the models (writes tables to `results/`, figures to `results/figures/`, the model to `models/`):
+
+    python src\train_models.py
+
 4. Run the Decision-Support App (Requires a free NASA API key):
-   streamlit run app\app.py
+
+    streamlit run app\app.py
 
 ## Results
 Test set (2024-2025, years never used for training or tuning). Share of positive rows: 0.281, so a random guess scores a PR-AUC of about 0.28.
@@ -62,17 +67,17 @@ Test set (2024-2025, years never used for training or tuning). Share of positive
 | Persistence baseline (fire in the last 7 days) | 0.523 | 0.712 | 0.561 |
 | Logistic Regression | 0.627 | 0.804 | 0.602 |
 | Random Forest | 0.673 | 0.825 | 0.624 |
-| XGBoost | 0.681 | 0.830 | 0.627 |
+| **XGBoost** | **0.681** | **0.830** | **0.627** |
 
 XGBoost and Random Forest perform similarly.
 
-Operational view (XGBoost, test set). If only the 5% highest-risk cell-days are checked, 88% of them see a hotspot within 7 days (3.15 times better than random). At 10%: 81%. At 20%: 70%.
+**Operational view (XGBoost, test set).** If only the 5% highest-risk cell-days are checked, 88% of them see a hotspot within 7 days (3.15 times better than random). At 10%: 81%. At 20%: 70%.
 
-Transfer between islands (XGBoost without latitude and longitude, PR-AUC). Trained on Sumatra and tested on Kalimantan: 0.671 (Kalimantan-trained: 0.687). Trained on Kalimantan and tested on Sumatra: 0.648 (Sumatra-trained: 0.660).
+**Transfer between islands (XGBoost without latitude and longitude, PR-AUC).** Trained on Sumatra and tested on Kalimantan: 0.671 (Kalimantan-trained: 0.687). Trained on Kalimantan and tested on Sumatra: 0.648 (Sumatra-trained: 0.660).
 
-What drives the predictions (SHAP). Recent fire history matters most (hotspots in the last 30 and 90 days, days since the last hotspot), followed by the length of the dry streak, hotspots in neighbouring cells, and season. We extract these SHAP values in real-time to generate our cause attributions and action plans.
+**What drives the predictions (SHAP).** Recent fire history matters most (hotspots in the last 30 and 90 days, days since the last hotspot), followed by the length of the dry streak, hotspots in neighbouring cells, and season. We extract these SHAP values in real-time to generate our cause attributions and action plans.
 
-All figures and tables are in results/ (for example results/metrics.csv, results/figures/pr_curves.png).
+All figures and tables are in `results/` (for example `results/metrics.csv`, `results/figures/pr_curves.png`).
 
 ## Limitations
 - The model estimates risk, not certainty. It does not predict exact fire locations or times, and about 4 in 10 alerts at the chosen threshold are false alarms.
