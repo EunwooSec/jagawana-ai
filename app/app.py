@@ -7,10 +7,10 @@ import json
 import requests
 from io import StringIO
 from pathlib import Path
+import streamlit.components.v1 as components
 
 import joblib
 import matplotlib
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -48,6 +48,9 @@ TIER_RGB = {
 DEFAULT_DATE = "2024-09-15"
 MAX_DISTANCE_KM = 50.0
 
+BNPB_TOTAL_PERSONNEL = 71878
+BNPB_PERSONNEL_PER_REGU = 15
+
 PLACES = {
     "Pekanbaru area, Riau": (0.51, 101.45),
     "Jambi city area, Jambi": (-1.61, 103.61),
@@ -60,15 +63,93 @@ PLACES = {
     "Custom coordinates": None,
 }
 
-GUIDANCE_NOTE = ("Decision-support prototype. Must be validated with local agencies "
-                 "(BPBD, Manggala Agni, BRGM) before operational use.")
+# ------------------------------------------------------------------- translations
+TEXT = {
+    "EN": {
+        "title": "🔥 Jagawana AI: Fire Risk & Resource Allocation Engine",
+        "sidebar_data": "Data Source",
+        "sidebar_live": "Enable Live NASA FIRMS Data",
+        "sidebar_api": "NASA FIRMS API Key",
+        "sidebar_lang": "Language / Bahasa",
+        "sidebar_hist": "Historical Data Mode",
+        "sidebar_date": "Date",
+        "sidebar_islands": "Islands",
+        "map_show_grid": "Show Historical Risk Grid",
+        "map_show_live": "Show Live Hotspots (24h)",
+        "map_validate": "Validate 7-day Rings",
+        "map_caption": "Colored circles = 0.5° risk cells (~55 km). Orange dots = Active fires (NASA). Left-drag to pan, Right-drag to rotate.",
+        "check_title": "📍 Check Area",
+        "check_place": "Choose a place",
+        "check_causes": "Cause Attribution (Why this level?)",
+        "check_drivers": "Risk drivers",
+        "check_mitigating": "Mitigating factors",
+        "check_advice": "Recommended Resource Deployment",
+        "cc_title": "🚨 Resource Allocation Command Center",
+        "cc_desc": "Allocate limited firefighting personnel based on cause attribution and BNPB data.",
+        "cc_total_personnel": "Total National Personnel (BNPB)",
+        "cc_teams_avail": "Regu (Teams) Available",
+        "cc_max_per_cell": "Max Teams per Cell",
+        "cc_deploy_table": "Deployment Plan",
+        "cc_deploy_caption": "Allocation uses a greedy algorithm to maximize risk reduction.",
+        "list_title": "📋 High-Risk List",
+        "about_title": "📊 About & Results",
+        "tier_vhigh": "Very high",
+        "tier_high": "High",
+        "tier_elev": "Elevated",
+        "tier_low": "Lower",
+        "risk_score": "Risk score",
+        "primary_cause": "Primary Cause",
+        "priority": "Priority",
+        "teams_sent": "Regu Deployed",
+        "action": "Action",
+    },
+    "ID": {
+        "title": "🔥 Jagawana AI: Mesin Risiko & Alokasi Sumber Daya",
+        "sidebar_data": "Sumber Data",
+        "sidebar_live": "Aktifkan Data Live NASA FIRMS",
+        "sidebar_api": "API Key NASA FIRMS",
+        "sidebar_lang": "Language / Bahasa",
+        "sidebar_hist": "Mode Data Historis",
+        "sidebar_date": "Tanggal",
+        "sidebar_islands": "Pulau",
+        "map_show_grid": "Tampilkan Grid Risiko Historis",
+        "map_show_live": "Tampilkan Hotspot Live (24 Jam)",
+        "map_validate": "Validasi Ring 7-Hari",
+        "map_caption": "Lingkaran berwarna = sel risiko 0.5° (~55 km). Titik oranye = Api aktif (NASA). Klik kiri untuk geser, Klik kanan untuk putar.",
+        "check_title": "📍 Cek Area",
+        "check_place": "Pilih lokasi",
+        "check_causes": "Atribusi Penyebab (Kenapa level ini?)",
+        "check_drivers": "Pemicu risiko",
+        "check_mitigating": "Faktor pereduksi",
+        "check_advice": "Rekomendasi Alokasi Sumber Daya",
+        "cc_title": "🚨 Pusat Komando Alokasi Sumber Daya",
+        "cc_desc": "Alokasikan personel pemadam terbatas berdasarkan atribusi penyebab dan data BNPB.",
+        "cc_total_personnel": "Total Personel Nasional (BNPB)",
+        "cc_teams_avail": "Regu Tersedia",
+        "cc_max_per_cell": "Maks Regu per Sel",
+        "cc_deploy_table": "Rencana Deployment",
+        "cc_deploy_caption": "Alokasi menggunakan algoritma greedy untuk memaksimalkan pengurangan risiko.",
+        "list_title": "📋 Daftar Risiko Tinggi",
+        "about_title": "📊 Tentang & Hasil",
+        "tier_vhigh": "Sangat Tinggi",
+        "tier_high": "Tinggi",
+        "tier_elev": "Meningkat",
+        "tier_low": "Rendah",
+        "risk_score": "Skor risiko",
+        "primary_cause": "Penyebab Utama",
+        "priority": "Prioritas",
+        "teams_sent": "Regu Dikerahkan",
+        "action": "Tindakan",
+    }
+}
+
+def t(key, lang):
+    return TEXT[lang].get(key, key)
 
 # ------------------------------------------------- factor groups and wording
 def _days_since_text(days):
-    if days >= 365:
-        return "no hotspot recorded here in the past year"
-    if days <= 0:
-        return "a hotspot was detected here today"
+    if days >= 365: return "no hotspot recorded here in the past year"
+    if days <= 0: return "a hotspot was detected here today"
     return f"the last hotspot here was {int(days)} days ago"
 
 GROUPS = {
@@ -165,12 +246,6 @@ def assign_tier(risk, cuts):
         [risk >= cuts["c95"], risk >= cuts["c90"], risk >= cuts["c80"]],
         ["Very high", "High", "Elevated"], default="Lower")
 
-def strength_word(value):
-    value = abs(value)
-    if value >= 0.5: return "strong"
-    if value >= 0.2: return "moderate"
-    return "slight"
-
 def nearest_date(dates_index, ts):
     pos = dates_index.searchsorted(ts, side="right") - 1
     return dates_index[max(pos, 0)]
@@ -211,50 +286,25 @@ def contribution_figure(contrib_row):
     fig.tight_layout()
     return fig
 
-def tier_badge(tier, subtitle=""):
+def tier_badge(tier, lang, subtitle=""):
     r, g, b = TIER_RGB[tier]
     text_color = "#222" if tier in ("Elevated", "Lower") else "white"
+    tier_name = t(f"tier_{'vhigh' if tier=='Very high' else 'high' if tier=='High' else 'elev' if tier=='Elevated' else 'low'}", lang)
     return (f"<div style='background:rgb({r},{g},{b});color:{text_color};padding:14px 18px;"
-            f"border-radius:8px;font-size:1.4rem'><b>{tier} risk</b>"
+            f"border-radius:8px;font-size:1.4rem'><b>{tier_name} risk</b>"
             f"<div style='font-size:0.9rem'>{subtitle}</div></div>")
-
-def legend_html():
-    parts = []
-    for tier in TIERS:
-        r, g, b = TIER_RGB[tier]
-        parts.append(f"<span style='display:inline-block;width:14px;height:14px;border-radius:7px;"
-                     f"background:rgb({r},{g},{b});margin-right:6px;vertical-align:middle'></span>"
-                     f"<b>{tier}</b> ({TIER_RULE[tier]})&nbsp;&nbsp;&nbsp;")
-    return "".join(parts)
-
-def alert_text(row, tier, factors, advice_list):
-    reasons = "; ".join(f"{f['label']}: {f['text']}" for f in factors[:3])
-    focus = " ".join(advice_list[:2]) if advice_list else "Keep routine monitoring."
-    return (f"JAGAWANA AI DEPLOYMENT NOTICE\n"
-            f"Date: {pd.Timestamp(row['date']).date()}\n"
-            f"Area: {fmt_coord(row['lat'], row['lon'])} ({row['island']})\n"
-            f"Level: {tier.upper()} ({TIER_RULE[tier]})\n"
-            f"Main factors: {reasons}\n"
-            f"RECOMMENDED ACTION: {focus}")
 
 @st.cache_data(ttl=600)
 def fetch_live_hotspots(api_key):
-    if not api_key or len(api_key.strip()) < 10: 
-        return pd.DataFrame()
-    
+    if not api_key or len(api_key.strip()) < 10: return pd.DataFrame()
     BBOX = "95,-11,120,6"
     URL = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{api_key.strip()}/VIIRS_SNPP_NRT/{BBOX}/1"
-    
     try:
         response = requests.get(URL, timeout=15)
-        if response.status_code != 200:
-            st.sidebar.error(f"API Error {response.status_code}: {response.text}")
-            return pd.DataFrame()
-        if not response.text.strip() or response.text.startswith("Invalid"):
-            return pd.DataFrame()
+        if response.status_code != 200: return pd.DataFrame()
+        if not response.text.strip() or response.text.startswith("Invalid"): return pd.DataFrame()
         return pd.read_csv(StringIO(response.text))
-    except Exception as e:
-        st.sidebar.error(f"Connection error: {e}")
+    except Exception:
         return pd.DataFrame()
 
 def read_features():
@@ -283,7 +333,6 @@ def load_everything():
     data["tier"] = assign_tier(data["risk"].values, cuts)
 
     ctx = {"model": model, "features": features, "cuts": cuts, "has_cond": False, "cond_sorted": None}
-    
     if COND_MODEL_FILE.exists() and COND_INFO_FILE.exists() and CLIM_FILE.exists():
         try:
             cond_info = json.loads(COND_INFO_FILE.read_text())
@@ -298,80 +347,112 @@ def load_everything():
             ctx["has_cond"] = True
         except Exception as error:
             print("Conditions-only model skipped:", repr(error)[:200])
-            
     data = data.sort_values(["date", "cell_id"]).reset_index(drop=True)
     ctx["data"] = data
     return ctx
 
 # ----------------------------------------------------------------- UI pieces
-def render_map(day, ctx, islands, live_df=None):
+def render_map(day, ctx, islands, live_df, lang):
     counts = day["tier"].value_counts()
     cols = st.columns(4)
     for col, tier in zip(cols, TIERS):
-        col.metric(f"{tier}", int(counts.get(tier, 0)))
-    st.markdown(legend_html(), unsafe_allow_html=True)
+        col.metric(t(f"tier_{'vhigh' if tier=='Very high' else 'high' if tier=='High' else 'elev' if tier=='Elevated' else 'low'}", lang), int(counts.get(tier, 0)))
 
-    show_actual = st.checkbox("Validate: ring cells where a hotspot actually appeared within 7 days", value=False)
+    c1, c2, c3 = st.columns(3)
+    show_grid = c1.checkbox(t("map_show_grid", lang), value=True)
+    show_live = c2.checkbox(t("map_show_live", lang), value=(live_df is not None and not live_df.empty))
+    show_actual = c3.checkbox(t("map_validate", lang), value=False)
 
     view = day[day["island"].isin(islands)].copy()
-    if view.empty:
+    if view.empty and not show_live:
         st.info("No cells to show for this selection.")
         return
-    view["color"] = view["tier"].map(lambda t: list(TIER_RGB[t]) + [210])
-    view["risk_txt"] = view["risk"].map(lambda v: f"{v:.2f}")
-    view["name"] = [fmt_coord(a, b) for a, b in zip(view["lat"], view["lon"])]
-    view["actual"] = np.where(view["label"] == 1, "yes", "no")
-    view["lat"] = view["lat"].astype(float)
-    view["lon"] = view["lon"].astype(float)
+        
+    layers = []
 
-    layers = [pdk.Layer(
-        "ScatterplotLayer", data=view[["lon", "lat", "color", "tier", "risk_txt", "name", "actual"]],
-        get_position="[lon, lat]", get_radius=26000, get_fill_color="color",
-        pickable=True, opacity=0.8, stroked=False)]
-    
-    html = "<b>{tier} risk</b><br/>Score: {risk_txt}<br/>{name}"
+    # 1. Historical Grid Layer
+    if show_grid and not view.empty:
+        view["color"] = view["tier"].map(lambda t: list(TIER_RGB[t]) + [210])
+        view["lat"] = view["lat"].astype(float)
+        view["lon"] = view["lon"].astype(float)
+        
+        view["tooltip"] = (
+            "Risk Level: " + view["tier"].astype(str) + 
+            "\nScore: " + view["risk"].round(2).astype(str) + 
+            "\nLat/Lon: " + view["lat"].round(2).astype(str) + ", " + view["lon"].round(2).astype(str)
+        )
 
-    if live_df is not None and not live_df.empty:
+        layers.append(pdk.Layer(
+            "ScatterplotLayer", 
+            data=view,
+            get_position="[lon, lat]", 
+            get_radius=25000, 
+            get_fill_color="color",
+            pickable=True, 
+            opacity=0.8, 
+            stroked=False
+        ))
+
+    # 2. Live Hotspots Layer
+    if show_live and live_df is not None and not live_df.empty:
         live_plot = live_df.copy()
         live_plot["latitude"] = pd.to_numeric(live_plot["latitude"], errors="coerce")
         live_plot["longitude"] = pd.to_numeric(live_plot["longitude"], errors="coerce")
         live_plot = live_plot.dropna(subset=["latitude", "longitude"])
         
+        live_plot["tooltip"] = (
+            "🔥 LIVE HOTSPOT (24h)\n" +
+            "Lat/Lon: " + live_plot["latitude"].round(3).astype(str) + ", " + live_plot["longitude"].round(3).astype(str)
+        )
+        
         layers.append(pdk.Layer(
-            "ScatterplotLayer", data=live_plot,
+            "ScatterplotLayer", 
+            data=live_plot,
             get_position="[longitude, latitude]",
-            get_fill_color=[0, 0, 0, 255],
-            get_line_color=[255, 255, 255],
-            stroked=True, line_width_min_pixels=1,
-            get_radius=12000, pickable=True
+            get_fill_color=[255, 69, 0, 220],
+            stroked=False,
+            get_radius=1000,
+            pickable=True
         ))
-        html += "<br/><b style='color:black'>⚫ LIVE HOTSPOT (24h)</b>"
 
-    if show_actual:
+    # 3. Validation Rings Layer
+    if show_actual and not view.empty:
         rings = view.loc[view["label"] == 1, ["lon", "lat"]]
         layers.append(pdk.Layer(
-            "ScatterplotLayer", data=rings, get_position="[lon, lat]", get_radius=26000,
-            filled=False, stroked=True, get_line_color=[0, 0, 0, 255],
-            line_width_min_pixels=2, pickable=False))
-        html += "<br/>Hotspot in next 7 days: {actual}"
+            "ScatterplotLayer", 
+            data=rings, 
+            get_position="[lon, lat]", 
+            get_radius=25000,
+            filled=False, 
+            stroked=True, 
+            get_line_color=[0, 0, 0, 255],
+            line_width_min_pixels=2, 
+            pickable=False
+        ))
         
     deck = pdk.Deck(
         layers=layers,
-        initial_view_state=pdk.ViewState(latitude=0.0, longitude=108.0, zoom=4.2, pitch=0),
-        tooltip={"html": html}, map_provider="carto", map_style="light")
-    st.pydeck_chart(deck)
+        initial_view_state=pdk.ViewState(latitude=-1.5, longitude=113.0, zoom=4.8, pitch=0),
+        map_provider="carto", 
+        map_style="dark", 
+        tooltip={
+            "text": "{tooltip}",
+            "style": {"backgroundColor": "#1e1e1e", "color": "white", "borderRadius": "5px", "padding": "10px", "fontSize": "13px"}
+        }
+    )
+    
+    # Inject HTML to block right click natively inside the iframe
+    deck_html = deck.to_html(as_string=True)
+    deck_html = deck_html.replace("<body>", "<body oncontextmenu='return false'>")
+    
+    # Render using components to bypass Streamlit's default PyDeck wrapper
+    components.html(deck_html, height=650)
 
-    vh = view[view["tier"] == "Very high"]
-    if show_actual and len(vh):
-        st.caption(f"Validation: of the {len(vh)} very-high cells, {int(vh['label'].sum())} saw a hotspot "
-                   f"within 7 days ({vh['label'].mean():.0%}). The model does not see this in advance.")
-        
-    st.caption("Colored circles = 0.5° risk cells (~55 km). Black dots = Active fires detected by NASA in the last 24h. "
-               "Historical model was trained on cells with fire history in 2019-2022.")
+    st.caption(t("map_caption", lang))
 
-def render_check(day, ctx):
-    st.subheader("Check an area")
-    place = st.selectbox("Choose a place", list(PLACES.keys()))
+def render_check(day, ctx, lang):
+    st.subheader(t("check_title", lang))
+    place = st.selectbox(t("check_place", lang), list(PLACES.keys()))
     if PLACES[place] is None:
         c1, c2 = st.columns(2)
         lat = c1.number_input("Latitude", -6.0, 6.0, 0.5, 0.05)
@@ -383,7 +464,7 @@ def render_check(day, ctx):
     best = int(np.argmin(distances))
     distance = float(distances[best])
     if distance > MAX_DISTANCE_KM:
-        st.warning(f"No monitored cell within {MAX_DISTANCE_KM:.0f} km. Demo only covers cells with fire history.")
+        st.warning(f"No monitored cell within {MAX_DISTANCE_KM:.0f} km.")
         return
     row = day.iloc[best]
     tier = row["tier"]
@@ -393,48 +474,45 @@ def render_check(day, ctx):
     up, down = top_factors(contrib, row)
 
     left, right = st.columns([1, 1])
-    left.markdown(tier_badge(tier, TIER_RULE[tier]), unsafe_allow_html=True)
-    right.metric("Risk score (0 to 1)", f"{row['risk']:.2f}")
+    left.markdown(tier_badge(tier, lang), unsafe_allow_html=True)
+    right.metric(t("risk_score", lang), f"{row['risk']:.2f}")
     
-    actual = "a hotspot DID appear" if row["label"] == 1 else "no hotspot appeared"
-    st.caption(f"Validation check: in historical data, {actual} within 7 days.")
-
-    st.markdown("#### Cause Attribution (Why this level?)")
+    st.markdown(f"#### {t('check_causes', lang)}")
     a, b = st.columns(2)
-    a.markdown("**Risk drivers**")
+    a.markdown(f"**{t('check_drivers', lang)}**")
     if up:
         for f in up: a.markdown(f"- **{f['label']}**: {f['text']}")
-    else: a.write("No factor stands out.")
-    b.markdown("**Mitigating factors**")
+    else: a.write("-")
+    b.markdown(f"**{t('check_mitigating', lang)}**")
     if down:
         for f in down: b.markdown(f"- **{f['label']}**: {f['text']}")
-    else: b.write("No factor stands out.")
+    else: b.write("-")
     
-    st.caption("These factors describe the model's logic, not proven causes of fire.")
     st.pyplot(contribution_figure(contrib))
     plt.close()
 
-    st.markdown("#### Recommended Resource Deployment")
+    st.markdown(f"#### {t('check_advice', lang)}")
     seen = []
     for f in up[:3]:
         if f["advice"] not in seen:
             seen.append(f["advice"])
             st.info(f"🚨 {f['advice']}")
     if not seen: st.info("✅ Keep routine monitoring.")
-    st.caption(GUIDANCE_NOTE)
 
-def render_command_center(day, ctx, islands):
-    st.subheader("🚨 Resource Allocation Command Center")
-    st.markdown("Allocate limited firefighting personnel to the highest-risk cells based on cause attribution.")
+def render_command_center(day, ctx, islands, lang):
+    st.subheader(t("cc_title", lang))
+    st.markdown(t("cc_desc", lang))
     
     view = day[day["island"].isin(islands)].copy()
     if view.empty:
         st.info("No cells to show.")
         return
+
+    st.info(f"🏛️ **{t('cc_total_personnel', lang)}:** {BNPB_TOTAL_PERSONNEL:,} personnel across 6 priority provinces (Oct 2026).")
         
     col1, col2 = st.columns(2)
-    available_teams = col1.number_input("Total personnel teams available:", min_value=1, max_value=100, value=10)
-    max_per_cell = col2.number_input("Max teams per cell:", min_value=1, max_value=5, value=2)
+    available_teams = col1.number_input(t("cc_teams_avail", lang), min_value=1, max_value=1000, value=100)
+    max_per_cell = col2.number_input(t("cc_max_per_cell", lang), min_value=1, max_value=5, value=2)
 
     view = view[view["risk"] >= view["risk"].quantile(0.80)]
     top_view = view.nlargest(available_teams * max_per_cell, "risk")
@@ -457,32 +535,32 @@ def render_command_center(day, ctx, islands):
         deploy_list.append({
             "Target Cell": fmt_coord(row["lat"], row["lon"]),
             "Island": row["island"],
-            "Risk Score": round(row["risk"], 2),
-            "Primary Cause": up[0]["label"] if up else "-",
-            "Priority Score": round(priority_score, 2),
-            "Teams Deployed": teams_to_send,
-            "Action": action
+            t("risk_score", lang): round(row["risk"], 2),
+            t("primary_cause", lang): up[0]["label"] if up else "-",
+            t("priority", lang): round(priority_score, 2),
+            t("teams_sent", lang): teams_to_send,
+            t("action", lang): action
         })
         teams_left -= teams_to_send
         
-    df = pd.DataFrame(deploy_list).sort_values("Priority Score", ascending=False)
+    df = pd.DataFrame(deploy_list).sort_values(t("priority", lang), ascending=False)
     st.dataframe(df, use_container_width=True)
-    st.caption(f"**Total Teams Deployed: {available_teams - teams_left} / {available_teams}**")
+    st.caption(t("cc_deploy_caption", lang))
     
-    st.markdown("#### Deployment Map")
+    st.markdown(f"#### {t('cc_deploy_table', lang)} Map")
     deploy_coords = []
     for _, row in df.iterrows():
         lat_str, lon_str = row["Target Cell"].split("°")[0], row["Target Cell"].split("°")[1].split(",")[1].replace("E","")
         lat = float(lat_str) * (1 if "N" in row["Target Cell"] else -1)
         lon = float(lon_str)
-        deploy_coords.append({"lat": lat, "lon": lon, "teams": row["Teams Deployed"]})
+        deploy_coords.append({"lat": lat, "lon": lon, "teams": row[t("teams_sent", lang)]})
         
     if deploy_coords:
         map_df = pd.DataFrame(deploy_coords)
         st.map(map_df, latitude="lat", longitude="lon", size="teams", color="#ff0000")
 
-def render_list(day, ctx, islands):
-    st.subheader("High-risk list")
+def render_list(day, ctx, islands, lang):
+    st.subheader(t("list_title", lang))
     view = day[day["island"].isin(islands)]
     if view.empty:
         st.info("No cells to show.")
@@ -491,7 +569,7 @@ def render_list(day, ctx, islands):
     top = view.nlargest(n, "risk")
     contrib = explain_rows(ctx["model"], top, ctx["features"])
 
-    records, details = [], []
+    records = []
     for rank, (idx, row) in enumerate(top.iterrows(), start=1):
         up, _ = top_factors(contrib.loc[idx], row)
         advice = []
@@ -499,24 +577,17 @@ def render_list(day, ctx, islands):
             if f["advice"] not in advice: advice.append(f["advice"])
         records.append({
             "Rank": rank, "Level": row["tier"], "Island": row["island"],
-            "Location": fmt_coord(row["lat"], row["lon"]), "Risk": round(float(row["risk"]), 2),
-            "Main Cause": up[0]["label"] if up else "-",
-            "Action": advice[0] if advice else "Keep routine monitoring."
+            "Location": fmt_coord(row["lat"], row["lon"]), t("risk_score", lang): round(float(row["risk"]), 2),
+            t("primary_cause", lang): up[0]["label"] if up else "-",
+            t("action", lang): advice[0] if advice else "Keep routine monitoring."
         })
-        details.append((row, row["tier"], up, advice))
     table = pd.DataFrame(records)
     st.dataframe(table)
     st.download_button("Download CSV", table.to_csv(index=False).encode("utf-8"),
                        file_name=f"jagawana_{pd.Timestamp(top['date'].iloc[0]).date()}.csv", mime="text/csv")
-    st.caption(GUIDANCE_NOTE)
 
-    st.markdown("#### Dispatch Alert Message (Preview)")
-    choice = st.selectbox("Pick a rank", list(range(1, len(details) + 1)))
-    row, tier, up, advice = details[choice - 1]
-    st.code(alert_text(row, tier, up, advice), language=None)
-
-def render_about(ctx):
-    st.subheader("About Jagawana AI")
+def render_about(lang):
+    st.subheader(t("about_title", lang))
     st.markdown(
         "- Jagawana AI estimates, for each 0.5° cell, the likelihood of a fire hotspot appearing "
         "within the next 7 days, and identifies the specific causes driving that estimate.\n"
@@ -529,25 +600,25 @@ def render_about(ctx):
     st.markdown("- **Top 5% Precision:** 88.4% (If responders check the top 5% of our map, 88% of those cells will have a fire).")
     st.markdown("- **Spatial Generalization:** The model can train on Sumatra and successfully predict fires in Kalimantan (PR-AUC 0.67).")
 
-    st.markdown("#### Limitations")
-    st.markdown(
-        "- Risk assessment, not certainty. Some alerts are false alarms.\n"
-        "- Hotspots are satellite detections, not confirmed fires. Clouds can hide fires.\n"
-        "- Prevention guidance is decision-support and must be validated by local BPBD/Manggala Agni.")
+    st.markdown("### Future Work (Phase 2)")
+    st.markdown("- **Peatland Integration:** Integrate spatial peatland depth data (from BRGM/GFW) to specifically predict underground peat fires.")
+    st.markdown("- **Live BNPB API:** Transition from our static 71,878 personnel baseline to a fully live API feed if granted access by the government.")
 
 # ------------------------------------------------------------------------ main
 def main():
     st.set_page_config(page_title="Jagawana AI", page_icon="🔥", layout="wide")
-    st.title("🔥 Jagawana AI: Fire Risk & Resource Allocation Engine")
     
-    st.sidebar.header("Data Source")
-    use_live = st.sidebar.checkbox("Enable Live NASA FIRMS Data")
-    api_key = st.sidebar.text_input("NASA FIRMS API Key", type="password") if use_live else ""
+    lang = st.sidebar.radio(t("sidebar_lang", "EN"), ["EN", "ID"], horizontal=True)
+    st.title(t("title", lang))
+    
+    st.sidebar.header(t("sidebar_data", lang))
+    use_live = st.sidebar.checkbox(t("sidebar_live", lang))
+    api_key = st.sidebar.text_input(t("sidebar_api", lang), value="") if use_live else ""
 
     needed = {"dataset.parquet": DATASET_FILE, "predictions.parquet": PRED_FILE, "model.joblib": MODEL_FILE}
     missing = [name for name, path in needed.items() if not path.exists()]
     if missing:
-        st.error(f"Missing files: {', '.join(missing)}. Run build_dataset.py and train_models.py first.")
+        st.error(f"Missing files: {', '.join(missing)}.")
         st.stop()
 
     ctx = load_everything()
@@ -559,39 +630,27 @@ def main():
         live_df = fetch_live_hotspots(api_key)
         if not live_df.empty:
             st.sidebar.success(f"✅ Fetched {len(live_df)} live hotspots (24h)")
-            st.sidebar.dataframe(live_df[["latitude", "longitude", "bright_ti4", "confidence"]].head())
-            st.info("Live Hotspots fetched. Black dots on the map show active fires from the last 24 hours.")
         else:
-            st.sidebar.warning("⚠️ No live data fetched. Check API key or wait for satellite pass.")
+            st.sidebar.warning("⚠️ No live data fetched.")
 
-    st.sidebar.header("Historical Data Mode")
+    st.sidebar.header(t("sidebar_hist", lang))
     default = min(max(pd.Timestamp(DEFAULT_DATE), dates[0]), dates[-1])
-    picked = st.sidebar.date_input("Date", value=default.date(), min_value=dates[0].date(), max_value=dates[-1].date())
+    picked = st.sidebar.date_input(t("sidebar_date", lang), value=default.date(), min_value=dates[0].date(), max_value=dates[-1].date())
     day_ts = nearest_date(dates, pd.Timestamp(picked))
-    if day_ts != pd.Timestamp(picked):
-        st.sidebar.info(f"No data for {picked}. Showing {day_ts.date()}.")
     
-    selected_islands = st.sidebar.multiselect("Islands", ["Sumatra", "Kalimantan"], default=["Sumatra", "Kalimantan"])
-    if not selected_islands:
-        selected_islands = ["Sumatra", "Kalimantan"]
-        
-    st.sidebar.caption("Validation years: 2023. Test years: 2024-2025.")
+    selected_islands = st.sidebar.multiselect(t("sidebar_islands", lang), ["Sumatra", "Kalimantan"], default=["Sumatra", "Kalimantan"])
+    if not selected_islands: selected_islands = ["Sumatra", "Kalimantan"]
 
     day = data[data["date"] == day_ts].reset_index(drop=True)
     
     tab_map, tab_check, tab_command, tab_list, tab_about = st.tabs(
-        ["🗺️ Risk Map", "📍 Check Area", "🚨 Command Center", "📋 High-Risk List", "📊 About & Results"])
+        [t("map_show_grid", lang), t("check_title", lang), t("cc_title", lang), t("list_title", lang), t("about_title", lang)])
         
-    with tab_map: 
-        render_map(day, ctx, selected_islands, live_df)
-    with tab_check: 
-        render_check(day, ctx)
-    with tab_command: 
-        render_command_center(day, ctx, selected_islands)
-    with tab_list: 
-        render_list(day, ctx, selected_islands)
-    with tab_about: 
-        render_about(ctx)
+    with tab_map: render_map(day, ctx, selected_islands, live_df, lang)
+    with tab_check: render_check(day, ctx, lang)
+    with tab_command: render_command_center(day, ctx, selected_islands, lang)
+    with tab_list: render_list(day, ctx, selected_islands, lang)
+    with tab_about: render_about(lang)
 
 if __name__ == "__main__":
     main()
