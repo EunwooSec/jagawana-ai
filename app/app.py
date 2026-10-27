@@ -1,4 +1,4 @@
-"""Jagawana AI - Decision Support Engine (Beta Prototype).
+"""Jagawana AI - Decision Support Engine (Final Submission Build).
 
 Run from the project folder:
     python -m streamlit run app\\app.py
@@ -7,6 +7,7 @@ import json
 import requests
 from io import StringIO
 from pathlib import Path
+import streamlit as st
 import streamlit.components.v1 as components
 
 import joblib
@@ -16,7 +17,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pydeck as pdk
-import streamlit as st
 import xgboost as xgb
 
 # ----------------------------------------------------------------- file paths
@@ -45,7 +45,8 @@ TIER_RGB = {
     "Elevated": (252, 146, 114),
     "Lower": (170, 185, 205),
 }
-DEFAULT_DATE = "2024-09-15"
+
+DEFAULT_DATE = "2024-09-15" 
 MAX_DISTANCE_KM = 50.0
 
 BNPB_TOTAL_PERSONNEL = 71878
@@ -66,28 +67,30 @@ PLACES = {
 # ------------------------------------------------------------------- translations
 TEXT = {
     "EN": {
-        "title": "🔥 Jagawana AI: Fire Risk & Resource Allocation Engine",
-        "sidebar_data": "Data Source",
+        "title": "Jagawana AI: Fire Risk & Resource Allocation Engine",
+        "sidebar_data": "Live Data Source",
         "sidebar_live": "Enable Live NASA FIRMS Data",
         "sidebar_api": "NASA FIRMS API Key",
+        "sidebar_settings": "⚙️ App Settings",
         "sidebar_lang": "Language / Bahasa",
-        "sidebar_hist": "Historical Data Mode",
-        "sidebar_date": "Date",
+        "sidebar_hist": "📅 Forecast Date (Select Past Date)",
+        "sidebar_date": "Select Date",
+        "sidebar_help": "Select a date to generate the 7-day forecast for that period. To see live fires happening right now, enable the Live NASA toggle above.",
         "sidebar_islands": "Islands",
         "map_show_grid": "Show Historical Risk Grid",
         "map_show_live": "Show Live Hotspots (24h)",
         "map_validate": "Validate 7-day Rings",
-        "map_caption": "Colored circles = 0.5° risk cells (~55 km). Orange dots = Active fires (NASA). Left-drag to pan, Right-drag to rotate.",
-        "check_title": "📍 Check Area",
+        "map_caption": "Colored circles = 0.5° risk cells (~55 km). Orange dots = Active fires (NASA). Black rings = Actual fires that occurred (Validation).",
+        "check_title": "📍 Check Area (Forecast)",
         "check_place": "Choose a place",
         "check_causes": "Cause Attribution (Why this level?)",
         "check_drivers": "Risk drivers",
         "check_mitigating": "Mitigating factors",
         "check_advice": "Recommended Resource Deployment",
         "cc_title": "🚨 Resource Allocation Command Center",
-        "cc_desc": "Allocate limited firefighting personnel based on cause attribution and BNPB data.",
-        "cc_total_personnel": "Total National Personnel (BNPB)",
-        "cc_teams_avail": "Regu (Teams) Available",
+        "cc_desc": "Allocate limited firefighting personnel based on cause attribution and BNPB baseline data.",
+        "cc_total_personnel": "National Baseline (BNPB Oct 2026)",
+        "cc_teams_avail": "Total Deployment Teams Available (1 Team = 15 personnel)",
         "cc_max_per_cell": "Max Teams per Cell",
         "cc_deploy_table": "Deployment Plan",
         "cc_deploy_caption": "Allocation uses a greedy algorithm to maximize risk reduction.",
@@ -100,33 +103,35 @@ TEXT = {
         "risk_score": "Risk score",
         "primary_cause": "Primary Cause",
         "priority": "Priority",
-        "teams_sent": "Regu Deployed",
+        "teams_sent": "Teams Deployed",
         "action": "Action",
     },
     "ID": {
-        "title": "🔥 Jagawana AI: Mesin Risiko & Alokasi Sumber Daya",
-        "sidebar_data": "Sumber Data",
+        "title": "Jagawana AI: Mesin Risiko & Alokasi Sumber Daya",
+        "sidebar_data": "Sumber Data Live",
         "sidebar_live": "Aktifkan Data Live NASA FIRMS",
         "sidebar_api": "API Key NASA FIRMS",
+        "sidebar_settings": "⚙️ Pengaturan Aplikasi",
         "sidebar_lang": "Language / Bahasa",
-        "sidebar_hist": "Mode Data Historis",
-        "sidebar_date": "Tanggal",
+        "sidebar_hist": "📅 Tanggal Prakiraan (Pilih Tanggal Lampau)",
+        "sidebar_date": "Pilih Tanggal",
+        "sidebar_help": "Pilih tanggal untuk menghasilkan prakiraan 7 hari pada periode tersebut. Untuk melihat kebakaran live saat ini, aktifkan toggle Live NASA di atas.",
         "sidebar_islands": "Pulau",
         "map_show_grid": "Tampilkan Grid Risiko Historis",
         "map_show_live": "Tampilkan Hotspot Live (24 Jam)",
         "map_validate": "Validasi Ring 7-Hari",
-        "map_caption": "Lingkaran berwarna = sel risiko 0.5° (~55 km). Titik oranye = Api aktif (NASA). Klik kiri untuk geser, Klik kanan untuk putar.",
-        "check_title": "📍 Cek Area",
+        "map_caption": "Lingkaran berwarna = sel risiko 0.5° (~55 km). Titik oranye = Api aktif (NASA). Cincin hitam = Kebakaran aktual (Validasi).",
+        "check_title": "📍 Cek Area (Prakiraan)",
         "check_place": "Pilih lokasi",
         "check_causes": "Atribusi Penyebab (Kenapa level ini?)",
         "check_drivers": "Pemicu risiko",
         "check_mitigating": "Faktor pereduksi",
         "check_advice": "Rekomendasi Alokasi Sumber Daya",
         "cc_title": "🚨 Pusat Komando Alokasi Sumber Daya",
-        "cc_desc": "Alokasikan personel pemadam terbatas berdasarkan atribusi penyebab dan data BNPB.",
-        "cc_total_personnel": "Total Personel Nasional (BNPB)",
-        "cc_teams_avail": "Regu Tersedia",
-        "cc_max_per_cell": "Maks Regu per Sel",
+        "cc_desc": "Alokasikan personel pemadam terbatas berdasarkan atribusi penyebab dan data baseline BNPB.",
+        "cc_total_personnel": "Baseline Nasional (BNPB Okt 2026)",
+        "cc_teams_avail": "Total Tim Deploy Tersedia (1 Tim = 15 personel)",
+        "cc_max_per_cell": "Maks Tim per Sel",
         "cc_deploy_table": "Rencana Deployment",
         "cc_deploy_caption": "Alokasi menggunakan algoritma greedy untuk memaksimalkan pengurangan risiko.",
         "list_title": "📋 Daftar Risiko Tinggi",
@@ -138,7 +143,7 @@ TEXT = {
         "risk_score": "Skor risiko",
         "primary_cause": "Penyebab Utama",
         "priority": "Prioritas",
-        "teams_sent": "Regu Dikerahkan",
+        "teams_sent": "Tim Dikerahkan",
         "action": "Tindakan",
     }
 }
@@ -170,7 +175,7 @@ GROUPS = {
         "describe": lambda r: (
             f"hotspot detections in the surrounding cells over the last 7 / 30 days: "
             f"{int(r['nb_fires_7d'])} / {int(r['nb_fires_30d'])}"),
-        "advice": ("Deploy 1 Preventive Patrol Team (5 personnel). Coordinate with "
+        "advice": ("Deploy 1 Preventive Patrol Team (15 personnel). Coordinate with "
                    "neighbouring villages and monitor boundaries."),
         "weight": 1.1
     },
@@ -179,7 +184,7 @@ GROUPS = {
         "label": "Recent rainfall",
         "describe": lambda r: (
             f"{r['rain_7d']:.0f} mm in the last 7 days, {r['rain_30d']:.0f} mm in 30 days"),
-        "advice": ("Deploy Preventive Patrol Team. Reinforce burn-ban messages and check "
+        "advice": ("Deploy Preventive Patrol Team (15 personnel). Reinforce burn-ban messages and check "
                    "canals and water points."),
         "weight": 1.0
     },
@@ -187,7 +192,7 @@ GROUPS = {
         "features": ["dry_streak"],
         "label": "Dry spell length",
         "describe": lambda r: f"{int(r['dry_streak'])} days in a row with under 1 mm of rain",
-        "advice": ("Pre-position 2 firefighting teams and 1 thermal drone. Raise patrol frequency."),
+        "advice": ("Pre-position 2 firefighting teams (30 personnel) and 1 thermal drone. Raise patrol frequency."),
         "weight": 1.2
     },
     "humidity": {
@@ -223,7 +228,7 @@ GROUPS = {
         "features": ["lat", "lon"],
         "label": "Location",
         "describe": lambda r: (f"{fmt_coord(r['lat'], r['lon'])} ({r['island']})"),
-        "advice": ("Alert local BRGM peat restoration team. Assess need for canal blocking "
+        "advice": ("Alert local BRGM peat restoration team (15 personnel). Assess need for canal blocking "
                    "(rewetting) if this is drained peatland."),
         "weight": 0.9
     },
@@ -273,6 +278,34 @@ def top_factors(contrib_row, row, n_up=5, n_down=3):
         return [{"key": k, "label": GROUPS[k]["label"], "text": GROUPS[k]["describe"](row),
                  "value": v, "advice": GROUPS[k]["advice"], "weight": GROUPS[k]["weight"]} for k, v in items]
     return pack(up), pack(down)
+
+# --- FINAL 5-TIER DYNAMIC ADVICE FUNCTION ---
+def get_dynamic_advice(risk, base_advice):
+    """
+    Doctrine-based allocation strictly following BMKG FDRS Levels and PermenLHK P.32/2016.
+    Unit size: 1 Regu = 15 personnel.
+    """
+
+    # --- TIER 1: NEGLIGIBLE RISK (< 0.30) ---
+    if risk < 0.30:
+        return "No immediate deployment required. Notify local community (MPA) for routine monitoring."
+
+    # --- TIER 2: MODERATE RISK (0.30 - 0.49) ---
+    elif risk < 0.50:
+        return "Deploy 1 Preventive Patrol Team (15 personnel). Conduct 12-hour patrol and public socialization. No water pumps required."
+
+    # --- TIER 3: HIGH RISK (0.50 - 0.74) ---
+    elif risk < 0.75:
+        return "Deploy 1 Rapid Reaction Team (15 personnel) + 1 water pump. Standby on location. Conduct 24-hour patrol."
+
+    # --- TIER 4: VERY HIGH RISK (0.75 - 0.89) ---
+    elif risk < 0.90:
+        return "Deploy 2 Rapid Suppression Teams (30 personnel) + 2 water pumps. Initiate immediate suppression and ground verification."
+
+    # --- TIER 5: EXTREME RISK (0.90 - 1.00) ---
+    else:
+        return "Deploy 3 Rapid Suppression Teams (45 personnel) + 3 water pumps. Initiate full strike force suppression immediately."
+# ------------------------------------------------------------------
 
 def contribution_figure(contrib_row):
     values = contrib_row.sort_values()
@@ -434,24 +467,23 @@ def render_map(day, ctx, islands, live_df, lang):
         layers=layers,
         initial_view_state=pdk.ViewState(latitude=-1.5, longitude=113.0, zoom=4.8, pitch=0),
         map_provider="carto", 
-        map_style="dark", 
+        map_style="light", 
         tooltip={
             "text": "{tooltip}",
             "style": {"backgroundColor": "#1e1e1e", "color": "white", "borderRadius": "5px", "padding": "10px", "fontSize": "13px"}
         }
     )
     
-    # Inject HTML to block right click natively inside the iframe
     deck_html = deck.to_html(as_string=True)
     deck_html = deck_html.replace("<body>", "<body oncontextmenu='return false'>")
-    
-    # Render using components to bypass Streamlit's default PyDeck wrapper
     components.html(deck_html, height=650)
 
     st.caption(t("map_caption", lang))
 
 def render_check(day, ctx, lang):
     st.subheader(t("check_title", lang))
+    st.caption("This tab visualizes the 7-day forecast for the selected date. To see live fires, enable the Live NASA toggle in the sidebar.")
+    
     place = st.selectbox(t("check_place", lang), list(PLACES.keys()))
     if PLACES[place] is None:
         c1, c2 = st.columns(2)
@@ -492,12 +524,8 @@ def render_check(day, ctx, lang):
     plt.close()
 
     st.markdown(f"#### {t('check_advice', lang)}")
-    seen = []
-    for f in up[:3]:
-        if f["advice"] not in seen:
-            seen.append(f["advice"])
-            st.info(f"🚨 {f['advice']}")
-    if not seen: st.info("✅ Keep routine monitoring.")
+    dynamic_advice = get_dynamic_advice(row["risk"], up[0]["advice"] if up else "")
+    st.info(f"🚨 {dynamic_advice}")
 
 def render_command_center(day, ctx, islands, lang):
     st.subheader(t("cc_title", lang))
@@ -508,56 +536,107 @@ def render_command_center(day, ctx, islands, lang):
         st.info("No cells to show.")
         return
 
-    st.info(f"🏛️ **{t('cc_total_personnel', lang)}:** {BNPB_TOTAL_PERSONNEL:,} personnel across 6 priority provinces (Oct 2026).")
+    st.info(f"🏛️ **{t('cc_total_personnel', lang)}:** {BNPB_TOTAL_PERSONNEL:,} personnel across 6 priority provinces (Baseline).")
         
-    col1, col2 = st.columns(2)
-    available_teams = col1.number_input(t("cc_teams_avail", lang), min_value=1, max_value=1000, value=100)
-    max_per_cell = col2.number_input(t("cc_max_per_cell", lang), min_value=1, max_value=5, value=2)
+    available_teams = st.number_input(t("cc_teams_avail", lang), min_value=1, max_value=1000, value=100)
 
-    view = view[view["risk"] >= view["risk"].quantile(0.80)]
-    top_view = view.nlargest(available_teams * max_per_cell, "risk")
-    
-    contrib = explain_rows(ctx["model"], top_view, ctx["features"])
-    
-    deploy_list = []
-    teams_left = available_teams
-    
-    for idx, row in top_view.iterrows():
-        if teams_left <= 0: break
-        up, _ = top_factors(contrib.loc[idx], row)
+    with st.spinner("Calculating optimal deployment plan..."):
+        view = view[view["risk"] >= view["risk"].quantile(0.80)]
+        top_view = view.nlargest(available_teams * 3, "risk") 
         
-        weight = max([f["weight"] for f in up]) if up else 1.0
-        priority_score = row["risk"] * weight
+        contrib = explain_rows(ctx["model"], top_view, ctx["features"])
         
-        teams_to_send = min(teams_left, max_per_cell)
-        action = up[0]["advice"] if up else "Deploy team."
+        deploy_list = []
+        teams_left = available_teams
         
-        deploy_list.append({
-            "Target Cell": fmt_coord(row["lat"], row["lon"]),
-            "Island": row["island"],
-            t("risk_score", lang): round(row["risk"], 2),
-            t("primary_cause", lang): up[0]["label"] if up else "-",
-            t("priority", lang): round(priority_score, 2),
-            t("teams_sent", lang): teams_to_send,
-            t("action", lang): action
-        })
-        teams_left -= teams_to_send
+        for idx, row in top_view.iterrows():
+            if teams_left <= 0: break
+            
+            # --- HARD CUTOFF: DO NOT DEPLOY IF RISK IS BELOW 0.30 ---
+            if row["risk"] < 0.30:
+                continue
+                
+            up, _ = top_factors(contrib.loc[idx], row)
+            
+            weight = max([f["weight"] for f in up]) if up else 1.0
+            priority_score = row["risk"] * weight
+            
+            # Determine teams based on the 5-tier logic
+            if row["risk"] >= 0.90:
+                needed_teams = 3
+            elif row["risk"] >= 0.75:
+                needed_teams = 2
+            else:
+                needed_teams = 1
+                
+            teams_to_send = min(needed_teams, teams_left)
+            
+            action = get_dynamic_advice(row["risk"], up[0]["advice"] if up else "")
+
+            reason = f"Risk {row['risk']:.2f} + " + (f"{up[0]['label']} (Weight {weight})" if up else "General")
+            
+            deploy_list.append({
+                "Target Cell": fmt_coord(row["lat"], row["lon"]),
+                "Island": row["island"],
+                "Lat": row["lat"],
+                "Lon": row["lon"],
+                t("risk_score", lang): round(row["risk"], 2),
+                t("primary_cause", lang): up[0]["label"] if up else "-",
+                "Reason": reason,
+                t("priority", lang): round(priority_score, 2),
+                t("teams_sent", lang): teams_to_send,
+                t("action", lang): action
+            })
+            teams_left -= teams_to_send
+            
+        deployed = available_teams - teams_left
+        if deployed > 0:
+            st.success(f"✅ **Deployment Successful:** {deployed} Teams ({deployed * BNPB_PERSONNEL_PER_REGU:,} total personnel) dispatched to {len(deploy_list)} priority hotspots.")
+        else:
+            st.info("ℹ️ **No critical hotspots detected.** All monitored cells are below the 0.30 risk threshold. Keep all teams on standby.")
+
+    if deployed > 0:
+        df = pd.DataFrame(deploy_list).sort_values(t("priority", lang), ascending=False)
+        df.index = range(1, len(df) + 1) # FIX: Command Center Index
         
-    df = pd.DataFrame(deploy_list).sort_values(t("priority", lang), ascending=False)
-    st.dataframe(df, use_container_width=True)
-    st.caption(t("cc_deploy_caption", lang))
-    
-    st.markdown(f"#### {t('cc_deploy_table', lang)} Map")
-    deploy_coords = []
-    for _, row in df.iterrows():
-        lat_str, lon_str = row["Target Cell"].split("°")[0], row["Target Cell"].split("°")[1].split(",")[1].replace("E","")
-        lat = float(lat_str) * (1 if "N" in row["Target Cell"] else -1)
-        lon = float(lon_str)
-        deploy_coords.append({"lat": lat, "lon": lon, "teams": row[t("teams_sent", lang)]})
+        st.download_button(
+            label="📥 Download Deployment Plan (CSV)",
+            data=df.drop(columns=["Lat", "Lon"]).to_csv(index=False).encode('utf-8'),
+            file_name=f"deployment_plan_{day['date'].iloc[0].date()}.csv",
+            mime="text/csv",
+            help="Download the deployment plan to share with field commanders."
+        )
+
+        display_df = df.drop(columns=["Lat", "Lon"])
+        st.dataframe(display_df, use_container_width=True)
+        st.caption(t("cc_deploy_caption", lang))
         
-    if deploy_coords:
-        map_df = pd.DataFrame(deploy_coords)
-        st.map(map_df, latitude="lat", longitude="lon", size="teams", color="#ff0000")
+        st.markdown(f"#### {t('cc_deploy_table', lang)} Map")
+        if not df.empty:
+            df["tooltip"] = df["Target Cell"] + "\n" + df["Reason"] + "\n" + df[t("teams_sent", lang)].astype(str) + " Teams"
+            
+            map_layer = pdk.Layer(
+                "ScatterplotLayer",
+                data=df,
+                get_position="[Lon, Lat]",
+                get_fill_color=[255, 0, 0, 200],
+                get_radius=15000,
+                pickable=True
+            )
+            
+            map_deck = pdk.Deck(
+                layers=[map_layer],
+                initial_view_state=pdk.ViewState(latitude=-1.5, longitude=113.0, zoom=4.5),
+                map_provider="carto",
+                map_style="dark",
+                tooltip={
+                    "text": "{tooltip}",
+                    "style": {"backgroundColor": "#ff0000", "color": "white"}
+                }
+            )
+            st.pydeck_chart(map_deck)
+    else:
+        st.dataframe(pd.DataFrame()) 
 
 def render_list(day, ctx, islands, lang):
     st.subheader(t("list_title", lang))
@@ -572,16 +651,18 @@ def render_list(day, ctx, islands, lang):
     records = []
     for rank, (idx, row) in enumerate(top.iterrows(), start=1):
         up, _ = top_factors(contrib.loc[idx], row)
-        advice = []
-        for f in up[:3]:
-            if f["advice"] not in advice: advice.append(f["advice"])
+        dynamic_advice = get_dynamic_advice(row["risk"], up[0]["advice"] if up else "Keep routine monitoring.")
+        
         records.append({
             "Rank": rank, "Level": row["tier"], "Island": row["island"],
             "Location": fmt_coord(row["lat"], row["lon"]), t("risk_score", lang): round(float(row["risk"]), 2),
             t("primary_cause", lang): up[0]["label"] if up else "-",
-            t("action", lang): advice[0] if advice else "Keep routine monitoring."
+            t("action", lang): dynamic_advice
         })
     table = pd.DataFrame(records)
+    
+    table.index = range(1, len(table) + 1) # FIX: High-Risk List Index
+    
     st.dataframe(table)
     st.download_button("Download CSV", table.to_csv(index=False).encode("utf-8"),
                        file_name=f"jagawana_{pd.Timestamp(top['date'].iloc[0]).date()}.csv", mime="text/csv")
@@ -606,10 +687,32 @@ def render_about(lang):
 
 # ------------------------------------------------------------------------ main
 def main():
-    st.set_page_config(page_title="Jagawana AI", page_icon="🔥", layout="wide")
+    st.set_page_config(page_title="Jagawana AI", page_icon="🔥", layout="wide", initial_sidebar_state="expanded")
     
-    lang = st.sidebar.radio(t("sidebar_lang", "EN"), ["EN", "ID"], horizontal=True)
-    st.title(t("title", lang))
+    st.markdown("""
+        <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        .stAppDeployButton {display: none;}
+        [data-testid="collapsedControl"] { display: block !important; visibility: visible !important; z-index: 1000; }
+        .block-container { padding-top: 3rem !important; padding-bottom: 0rem !important; }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    if 'lang' not in st.session_state:
+        st.session_state.lang = "EN"
+
+    with st.sidebar.expander(t("sidebar_settings", st.session_state.lang)):
+        lang_choice = st.radio(t("sidebar_lang", st.session_state.lang), ["EN", "ID"], index=0 if st.session_state.lang == "EN" else 1)
+        st.session_state.lang = lang_choice
+
+    lang = st.session_state.lang
+
+    col1, col2 = st.columns([0.5, 15])
+    with col1:
+        st.markdown("<h1 style='text-align: center; margin-top: 5px;'>🔥</h1>", unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"<h1 style='margin-top: 5px; line-height: 1.2;'>{t('title', lang)}</h1>", unsafe_allow_html=True)
     
     st.sidebar.header(t("sidebar_data", lang))
     use_live = st.sidebar.checkbox(t("sidebar_live", lang))
@@ -631,11 +734,17 @@ def main():
         if not live_df.empty:
             st.sidebar.success(f"✅ Fetched {len(live_df)} live hotspots (24h)")
         else:
-            st.sidebar.warning("⚠️ No live data fetched.")
+            st.sidebar.info("ℹ️ No active hotspots detected in the last 24h.")
 
     st.sidebar.header(t("sidebar_hist", lang))
     default = min(max(pd.Timestamp(DEFAULT_DATE), dates[0]), dates[-1])
-    picked = st.sidebar.date_input(t("sidebar_date", lang), value=default.date(), min_value=dates[0].date(), max_value=dates[-1].date())
+    picked = st.sidebar.date_input(
+        t("sidebar_date", lang), 
+        value=default.date(), 
+        min_value=dates[0].date(), 
+        max_value=dates[-1].date(),
+        help=t("sidebar_help", lang)
+    )
     day_ts = nearest_date(dates, pd.Timestamp(picked))
     
     selected_islands = st.sidebar.multiselect(t("sidebar_islands", lang), ["Sumatra", "Kalimantan"], default=["Sumatra", "Kalimantan"])
