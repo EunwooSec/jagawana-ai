@@ -46,7 +46,7 @@ TIER_RGB = {
     "Lower": (170, 185, 205),
 }
 
-DEFAULT_DATE = "2024-09-15" 
+DEFAULT_DATE = "2024-09-15"
 MAX_DISTANCE_KM = 50.0
 
 BNPB_TOTAL_PERSONNEL = 71878
@@ -178,6 +178,16 @@ GROUPS = {
         "advice": ("Deploy 1 Preventive Patrol Team (15 personnel). Coordinate with "
                    "neighbouring villages and monitor boundaries."),
         "weight": 1.1
+    },
+    "peatland": {
+        "features": ["peat_fraction", "peat_x_dry_streak"],
+        "label": "Peatland coverage & dryness",
+        "describe": lambda r: (
+            f"{r['peat_fraction'] * 100:.0f}% peatland coverage in cell "
+            f"({int(r['dry_streak'])} dry days)"),
+        "advice": ("Alert local BRGM peat restoration team (15 personnel). Prioritize canal blocking "
+                   "(rewetting) and subsurface peat moisture checks."),
+        "weight": 1.25
     },
     "rain": {
         "features": ["rain_7d", "rain_14d", "rain_30d", "rain_60d"],
@@ -400,7 +410,7 @@ def render_map(day, ctx, islands, live_df, lang):
     if view.empty and not show_live:
         st.info("No cells to show for this selection.")
         return
-        
+
     layers = []
 
     # 1. Historical Grid Layer
@@ -408,21 +418,21 @@ def render_map(day, ctx, islands, live_df, lang):
         view["color"] = view["tier"].map(lambda t: list(TIER_RGB[t]) + [210])
         view["lat"] = view["lat"].astype(float)
         view["lon"] = view["lon"].astype(float)
-        
+
         view["tooltip"] = (
-            "Risk Level: " + view["tier"].astype(str) + 
-            "\nScore: " + view["risk"].round(2).astype(str) + 
+            "Risk Level: " + view["tier"].astype(str) +
+            "\nScore: " + view["risk"].round(2).astype(str) +
             "\nLat/Lon: " + view["lat"].round(2).astype(str) + ", " + view["lon"].round(2).astype(str)
         )
 
         layers.append(pdk.Layer(
-            "ScatterplotLayer", 
+            "ScatterplotLayer",
             data=view,
-            get_position="[lon, lat]", 
-            get_radius=25000, 
+            get_position="[lon, lat]",
+            get_radius=25000,
             get_fill_color="color",
-            pickable=True, 
-            opacity=0.8, 
+            pickable=True,
+            opacity=0.8,
             stroked=False
         ))
 
@@ -432,14 +442,14 @@ def render_map(day, ctx, islands, live_df, lang):
         live_plot["latitude"] = pd.to_numeric(live_plot["latitude"], errors="coerce")
         live_plot["longitude"] = pd.to_numeric(live_plot["longitude"], errors="coerce")
         live_plot = live_plot.dropna(subset=["latitude", "longitude"])
-        
+
         live_plot["tooltip"] = (
             "🔥 LIVE HOTSPOT (24h)\n" +
             "Lat/Lon: " + live_plot["latitude"].round(3).astype(str) + ", " + live_plot["longitude"].round(3).astype(str)
         )
-        
+
         layers.append(pdk.Layer(
-            "ScatterplotLayer", 
+            "ScatterplotLayer",
             data=live_plot,
             get_position="[longitude, latitude]",
             get_fill_color=[255, 69, 0, 220],
@@ -452,28 +462,28 @@ def render_map(day, ctx, islands, live_df, lang):
     if show_actual and not view.empty:
         rings = view.loc[view["label"] == 1, ["lon", "lat"]]
         layers.append(pdk.Layer(
-            "ScatterplotLayer", 
-            data=rings, 
-            get_position="[lon, lat]", 
+            "ScatterplotLayer",
+            data=rings,
+            get_position="[lon, lat]",
             get_radius=25000,
-            filled=False, 
-            stroked=True, 
+            filled=False,
+            stroked=True,
             get_line_color=[0, 0, 0, 255],
-            line_width_min_pixels=2, 
+            line_width_min_pixels=2,
             pickable=False
         ))
-        
+
     deck = pdk.Deck(
         layers=layers,
         initial_view_state=pdk.ViewState(latitude=-1.5, longitude=113.0, zoom=4.8, pitch=0),
-        map_provider="carto", 
-        map_style="light", 
+        map_provider="carto",
+        map_style="light",
         tooltip={
             "text": "{tooltip}",
             "style": {"backgroundColor": "#1e1e1e", "color": "white", "borderRadius": "5px", "padding": "10px", "fontSize": "13px"}
         }
     )
-    
+
     deck_html = deck.to_html(as_string=True)
     deck_html = deck_html.replace("<body>", "<body oncontextmenu='return false'>")
     components.html(deck_html, height=650)
@@ -483,7 +493,7 @@ def render_map(day, ctx, islands, live_df, lang):
 def render_check(day, ctx, lang):
     st.subheader(t("check_title", lang))
     st.caption("This tab visualizes the 7-day forecast for the selected date. To see live fires, enable the Live NASA toggle in the sidebar.")
-    
+
     place = st.selectbox(t("check_place", lang), list(PLACES.keys()))
     if PLACES[place] is None:
         c1, c2 = st.columns(2)
@@ -508,7 +518,7 @@ def render_check(day, ctx, lang):
     left, right = st.columns([1, 1])
     left.markdown(tier_badge(tier, lang), unsafe_allow_html=True)
     right.metric(t("risk_score", lang), f"{row['risk']:.2f}")
-    
+
     st.markdown(f"#### {t('check_causes', lang)}")
     a, b = st.columns(2)
     a.markdown(f"**{t('check_drivers', lang)}**")
@@ -519,7 +529,7 @@ def render_check(day, ctx, lang):
     if down:
         for f in down: b.markdown(f"- **{f['label']}**: {f['text']}")
     else: b.write("-")
-    
+
     st.pyplot(contribution_figure(contrib))
     plt.close()
 
@@ -530,37 +540,37 @@ def render_check(day, ctx, lang):
 def render_command_center(day, ctx, islands, lang):
     st.subheader(t("cc_title", lang))
     st.markdown(t("cc_desc", lang))
-    
+
     view = day[day["island"].isin(islands)].copy()
     if view.empty:
         st.info("No cells to show.")
         return
 
     st.info(f"🏛️ **{t('cc_total_personnel', lang)}:** {BNPB_TOTAL_PERSONNEL:,} personnel across 6 priority provinces (Baseline).")
-        
+
     available_teams = st.number_input(t("cc_teams_avail", lang), min_value=1, max_value=1000, value=100)
 
     with st.spinner("Calculating optimal deployment plan..."):
         view = view[view["risk"] >= view["risk"].quantile(0.80)]
-        top_view = view.nlargest(available_teams * 3, "risk") 
-        
+        top_view = view.nlargest(available_teams * 3, "risk")
+
         contrib = explain_rows(ctx["model"], top_view, ctx["features"])
-        
+
         deploy_list = []
         teams_left = available_teams
-        
+
         for idx, row in top_view.iterrows():
             if teams_left <= 0: break
-            
+
             # --- HARD CUTOFF: DO NOT DEPLOY IF RISK IS BELOW 0.30 ---
             if row["risk"] < 0.30:
                 continue
-                
+
             up, _ = top_factors(contrib.loc[idx], row)
-            
+
             weight = max([f["weight"] for f in up]) if up else 1.0
             priority_score = row["risk"] * weight
-            
+
             # Determine teams based on the 5-tier logic
             if row["risk"] >= 0.90:
                 needed_teams = 3
@@ -568,13 +578,13 @@ def render_command_center(day, ctx, islands, lang):
                 needed_teams = 2
             else:
                 needed_teams = 1
-                
+
             teams_to_send = min(needed_teams, teams_left)
-            
+
             action = get_dynamic_advice(row["risk"], up[0]["advice"] if up else "")
 
             reason = f"Risk {row['risk']:.2f} + " + (f"{up[0]['label']} (Weight {weight})" if up else "General")
-            
+
             deploy_list.append({
                 "Target Cell": fmt_coord(row["lat"], row["lon"]),
                 "Island": row["island"],
@@ -588,7 +598,7 @@ def render_command_center(day, ctx, islands, lang):
                 t("action", lang): action
             })
             teams_left -= teams_to_send
-            
+
         deployed = available_teams - teams_left
         if deployed > 0:
             st.success(f"✅ **Deployment Successful:** {deployed} Teams ({deployed * BNPB_PERSONNEL_PER_REGU:,} total personnel) dispatched to {len(deploy_list)} priority hotspots.")
@@ -598,7 +608,7 @@ def render_command_center(day, ctx, islands, lang):
     if deployed > 0:
         df = pd.DataFrame(deploy_list).sort_values(t("priority", lang), ascending=False)
         df.index = range(1, len(df) + 1) # FIX: Command Center Index
-        
+
         st.download_button(
             label="📥 Download Deployment Plan (CSV)",
             data=df.drop(columns=["Lat", "Lon"]).to_csv(index=False).encode('utf-8'),
@@ -610,11 +620,11 @@ def render_command_center(day, ctx, islands, lang):
         display_df = df.drop(columns=["Lat", "Lon"])
         st.dataframe(display_df, use_container_width=True)
         st.caption(t("cc_deploy_caption", lang))
-        
+
         st.markdown(f"#### {t('cc_deploy_table', lang)} Map")
         if not df.empty:
             df["tooltip"] = df["Target Cell"] + "\n" + df["Reason"] + "\n" + df[t("teams_sent", lang)].astype(str) + " Teams"
-            
+
             map_layer = pdk.Layer(
                 "ScatterplotLayer",
                 data=df,
@@ -623,7 +633,7 @@ def render_command_center(day, ctx, islands, lang):
                 get_radius=15000,
                 pickable=True
             )
-            
+
             map_deck = pdk.Deck(
                 layers=[map_layer],
                 initial_view_state=pdk.ViewState(latitude=-1.5, longitude=113.0, zoom=4.5),
@@ -636,7 +646,7 @@ def render_command_center(day, ctx, islands, lang):
             )
             st.pydeck_chart(map_deck)
     else:
-        st.dataframe(pd.DataFrame()) 
+        st.dataframe(pd.DataFrame())
 
 def render_list(day, ctx, islands, lang):
     st.subheader(t("list_title", lang))
@@ -652,7 +662,7 @@ def render_list(day, ctx, islands, lang):
     for rank, (idx, row) in enumerate(top.iterrows(), start=1):
         up, _ = top_factors(contrib.loc[idx], row)
         dynamic_advice = get_dynamic_advice(row["risk"], up[0]["advice"] if up else "Keep routine monitoring.")
-        
+
         records.append({
             "Rank": rank, "Level": row["tier"], "Island": row["island"],
             "Location": fmt_coord(row["lat"], row["lon"]), t("risk_score", lang): round(float(row["risk"]), 2),
@@ -660,9 +670,9 @@ def render_list(day, ctx, islands, lang):
             t("action", lang): dynamic_advice
         })
     table = pd.DataFrame(records)
-    
+
     table.index = range(1, len(table) + 1) # FIX: High-Risk List Index
-    
+
     st.dataframe(table)
     st.download_button("Download CSV", table.to_csv(index=False).encode("utf-8"),
                        file_name=f"jagawana_{pd.Timestamp(top['date'].iloc[0]).date()}.csv", mime="text/csv")
@@ -673,22 +683,22 @@ def render_about(lang):
         "- Jagawana AI estimates, for each 0.5° cell, the likelihood of a fire hotspot appearing "
         "within the next 7 days, and identifies the specific causes driving that estimate.\n"
         "- It translates these causes into **actionable resource deployment plans** for responders.\n"
-        "- Data: NASA FIRMS VIIRS hotspots and NASA POWER weather. Model: XGBoost + SHAP.")
+        "- Data: NASA FIRMS VIIRS hotspots, NASA POWER weather, and GFW/BRGM Indonesia peatland extent. Model: XGBoost + SHAP.")
 
     st.markdown("### Performance Metrics (Test Years 2024-2025)")
-    st.markdown("- **PR-AUC:** 0.68 (vs. 0.52 baseline)")
-    st.markdown("- **ROC-AUC:** 0.83")
-    st.markdown("- **Top 5% Precision:** 88.4% (If responders check the top 5% of our map, 88% of those cells will have a fire).")
-    st.markdown("- **Spatial Generalization:** The model can train on Sumatra and successfully predict fires in Kalimantan (PR-AUC 0.67).")
+    st.markdown("- **PR-AUC:** 0.683 (vs. 0.523 baseline)")
+    st.markdown("- **ROC-AUC:** 0.832")
+    st.markdown("- **Top 5% Precision:** 88.6% (If responders check the top 5% of our map, nearly 89% of those cells will have a fire).")
+    st.markdown("- **Spatial Generalization:** The model can train on Sumatra and successfully predict fires in Kalimantan (PR-AUC 0.671).")
 
     st.markdown("### Future Work (Phase 2)")
-    st.markdown("- **Peatland Integration:** Integrate spatial peatland depth data (from BRGM/GFW) to specifically predict underground peat fires.")
+    st.markdown("- **Subsurface Peat Depth & Groundwater:** Integrate peat thickness rasters and ground water-table telemetry to model deep smoldering burn duration.")
     st.markdown("- **Live BNPB API:** Transition from our static 71,878 personnel baseline to a fully live API feed if granted access by the government.")
 
 # ------------------------------------------------------------------------ main
 def main():
     st.set_page_config(page_title="Jagawana AI", page_icon="🔥", layout="wide", initial_sidebar_state="expanded")
-    
+
     st.markdown("""
         <style>
         #MainMenu {visibility: hidden;}
@@ -698,7 +708,7 @@ def main():
         .block-container { padding-top: 3rem !important; padding-bottom: 0rem !important; }
         </style>
     """, unsafe_allow_html=True)
-    
+
     if 'lang' not in st.session_state:
         st.session_state.lang = "EN"
 
@@ -713,7 +723,7 @@ def main():
         st.markdown("<h1 style='text-align: center; margin-top: 5px;'>🔥</h1>", unsafe_allow_html=True)
     with col2:
         st.markdown(f"<h1 style='margin-top: 5px; line-height: 1.2;'>{t('title', lang)}</h1>", unsafe_allow_html=True)
-    
+
     st.sidebar.header(t("sidebar_data", lang))
     use_live = st.sidebar.checkbox(t("sidebar_live", lang))
     api_key = st.sidebar.text_input(t("sidebar_api", lang), value="") if use_live else ""
@@ -739,22 +749,22 @@ def main():
     st.sidebar.header(t("sidebar_hist", lang))
     default = min(max(pd.Timestamp(DEFAULT_DATE), dates[0]), dates[-1])
     picked = st.sidebar.date_input(
-        t("sidebar_date", lang), 
-        value=default.date(), 
-        min_value=dates[0].date(), 
+        t("sidebar_date", lang),
+        value=default.date(),
+        min_value=dates[0].date(),
         max_value=dates[-1].date(),
         help=t("sidebar_help", lang)
     )
     day_ts = nearest_date(dates, pd.Timestamp(picked))
-    
+
     selected_islands = st.sidebar.multiselect(t("sidebar_islands", lang), ["Sumatra", "Kalimantan"], default=["Sumatra", "Kalimantan"])
     if not selected_islands: selected_islands = ["Sumatra", "Kalimantan"]
 
     day = data[data["date"] == day_ts].reset_index(drop=True)
-    
+
     tab_map, tab_check, tab_command, tab_list, tab_about = st.tabs(
         [t("map_show_grid", lang), t("check_title", lang), t("cc_title", lang), t("list_title", lang), t("about_title", lang)])
-        
+
     with tab_map: render_map(day, ctx, selected_islands, live_df, lang)
     with tab_check: render_check(day, ctx, lang)
     with tab_command: render_command_center(day, ctx, selected_islands, lang)

@@ -14,7 +14,7 @@ Indonesia suffers from severe annual peatland and forest fires (Karhutla), causi
 ## What it does (Novelty & Innovation)
 - **Predicts Risk:** Forecasts, for each 0.5° grid cell on each day, whether at least one fire hotspot will appear in the next 7 days.
 - **Model Comparison:** Compares four approaches: a simple persistence rule, Logistic Regression, Random Forest, and XGBoost (main model).
-- **Explains Causes (SHAP):** Uses TreeSHAP to explain *why* a cell is at risk, grouping factors into human-readable causes (e.g., "Dry peat streak", "High wind", "Recent nearby fires").
+- **Explains Causes (SHAP):** Uses TreeSHAP to explain *why* a cell is at risk, grouping factors into human-readable causes (e.g., "Peatland coverage & dryness", "Dry spell length", "High wind", "Recent nearby fires").
 - **Resource Allocation Command Center:** Translates the cause weights into a priority score. The user inputs how many personnel teams are available, and a greedy optimization algorithm outputs a deployment map and action plan (e.g., "Deploy 1 Rapid Suppression Team + 1 water pump").
 - **Live Data Integration:** Connects to the live NASA FIRMS API to overlay real-time 24-hour hotspots alongside the 7-day predictive risk map.
 - **Spatial Validation:** Tests whether the model transfers between islands (trained on Sumatra, tested on Kalimantan, and the reverse).
@@ -22,19 +22,20 @@ Indonesia suffers from severe annual peatland and forest fires (Karhutla), causi
 ## Data
 - **NASA FIRMS** VIIRS S-NPP 375 m active fire detections, 2019-2025, Indonesia (hotspots). Kept: vegetation fires (type 0) with nominal or high confidence.
 - **NASA POWER** daily meteorology (rainfall, maximum temperature, relative humidity, wind speed).
+- **Indonesia Peatland Extent (GFW / BRGM)** *kabupaten*-level peatland area spatial boundaries (`spatial-metrics-indonesia-peat_area_kabupaten.geojson`) intersected onto each 0.5° grid cell.
 
 The raw data files are not stored in this repository because of their size. The scripts below rebuild everything from the public sources.
 
 ## Method in brief
 - Study area: Sumatra and Kalimantan, 0.5° grid cells. 425 cells with at least 5 hotspots in 2019-2022 are used (cells are selected from training years only).
 - Label: 1 if the cell has at least one hotspot during the next 7 days.
-- Features (all computed only from information up to the prediction day): hotspot counts over the last 7, 30 and 90 days, days since the last hotspot, hotspot counts in the 8 neighbouring cells, rainfall over 7/14/30/60 days, length of the current dry streak, temperature, humidity, wind, season, and cell location.
+- Features (all computed only from information up to the prediction day): hotspot counts over the last 7, 30 and 90 days, days since the last hotspot, hotspot counts in the 8 neighbouring cells, rainfall over 7/14/30/60 days, length of the current dry streak, temperature, humidity, wind, season, cell location, peatland fraction, and peat-dryness interaction (`peat_fraction * dry_streak`).
 - Dataset: 1,045,500 rows (2019-04-01 to 2025-12-24).
 - Split by date, with a 7-day gap before each boundary: train 2019-2022, validation 2023, test 2024-2025. Decision thresholds are tuned on validation only.
 
 ## Cost Analysis & Scalability
 Our solution is designed to be highly cost-effective and scalable for deployment in developing nations:
-- **Zero Data Cost:** Relies entirely on free, open-source satellite data from NASA (FIRMS and POWER).
+- **Zero Data Cost:** Relies entirely on free, open-source satellite and spatial data from NASA (FIRMS and POWER) and Global Forest Watch.
 - **Low Compute Requirements:** The 0.5° grid resolution and XGBoost architecture are lightweight. The model trains in minutes on a standard laptop CPU, avoiding the need for expensive GPU clusters or supercomputers.
 - **Deployment:** The frontend uses Streamlit, which can be hosted on a cloud server for under $10/month (or hosted on-premise by local government agencies like BNPB for free).
 
@@ -46,8 +47,8 @@ Requires Python 3.10 or newer (developed on Python 3.12).
     python -m pip install -r requirements.txt
 
 ## How to run
-1. Download the FIRMS file: on the NASA FIRMS Archive Download page, request VIIRS S-NPP, country Indonesia, CSV, 2019-01-01 to 2025-12-31. Save the extracted CSV as `data/raw/fire_archive_SV-C2_830533.csv` (or change `FIRMS_FILE` in `src/build_dataset.py` to your file name).
-2. Build the dataset (downloads and caches weather from NASA POWER, then builds features and labels):
+1. Download the FIRMS file and peatland GeoJSON: on the NASA FIRMS Archive Download page, request VIIRS S-NPP, country Indonesia, CSV, 2019-01-01 to 2025-12-31, and save the extracted CSV as `data/raw/fire_archive_SV-C2_830533.csv`. Place the Indonesia *kabupaten* peatland GeoJSON in `data/raw/spatial-metrics-indonesia-peat_area_kabupaten.geojson`.
+2. Build the dataset (downloads and caches weather from NASA POWER, computes spatial peatland fractions, then builds features and labels):
 
     python src\build_dataset.py
 
@@ -65,17 +66,17 @@ Test set (2024-2025, years never used for training or tuning). Share of positive
 | Model | PR-AUC | ROC-AUC | F1 |
 |---|---|---|---|
 | Persistence baseline (fire in the last 7 days) | 0.523 | 0.712 | 0.561 |
-| Logistic Regression | 0.627 | 0.804 | 0.602 |
-| Random Forest | 0.673 | 0.825 | 0.624 |
-| **XGBoost** | **0.681** | **0.830** | **0.627** |
+| Logistic Regression | 0.627 | 0.804 | 0.601 |
+| Random Forest | 0.674 | 0.826 | 0.624 |
+| **XGBoost** | **0.683** | **0.832** | **0.629** |
 
 XGBoost and Random Forest perform similarly.
 
-**Operational view (XGBoost, test set).** If only the 5% highest-risk cell-days are checked, 88% of them see a hotspot within 7 days (3.15 times better than random). At 10%: 81%. At 20%: 70%.
+**Operational view (XGBoost, test set).** If only the 5% highest-risk cell-days are checked, 88.6% of them see a hotspot within 7 days (3.16 times better than random). At 10%: 81.1%. At 20%: 70.0%.
 
-**Transfer between islands (XGBoost without latitude and longitude, PR-AUC).** Trained on Sumatra and tested on Kalimantan: 0.671 (Kalimantan-trained: 0.687). Trained on Kalimantan and tested on Sumatra: 0.648 (Sumatra-trained: 0.660).
+**Transfer between islands (XGBoost without latitude and longitude, PR-AUC).** Trained on Sumatra and tested on Kalimantan: 0.671 (Kalimantan-trained: 0.694). Trained on Kalimantan and tested on Sumatra: 0.642 (Sumatra-trained: 0.663).
 
-**What drives the predictions (SHAP).** Recent fire history matters most (hotspots in the last 30 and 90 days, days since the last hotspot), followed by the length of the dry streak, hotspots in neighbouring cells, and season. We extract these SHAP values in real-time to generate our cause attributions and action plans.
+**What drives the predictions (SHAP) & Ablation.** Recent fire history matters most (hotspots in the last 30 and 90 days, days since the last hotspot), followed by season, hotspots in neighbouring cells, dry streak length, and peatland coverage (`peat_fraction`). In feature-group ablation without fire history (predicting new ignitions in quiet cells with no fire in the last 90 days), `peat_fraction` becomes the **#2 strongest predictor overall** (`0.268` mean |SHAP|), achieving a **3.62x lift** over random. We extract these SHAP values in real-time to generate our cause attributions and action plans.
 
 All figures and tables are in `results/` (for example `results/metrics.csv`, `results/figures/pr_curves.png`).
 
@@ -83,8 +84,8 @@ All figures and tables are in `results/` (for example `results/metrics.csv`, `re
 - The model estimates risk, not certainty. It does not predict exact fire locations or times, and about 4 in 10 alerts at the chosen threshold are false alarms.
 - Hotspots are satellite detections, not confirmed fires. Clouds and satellite revisit gaps can hide fires. "Fire cell-days" count each day a cell has a hotspot, so one long fire counts many times.
 - Evaluated on fire-prone cells only (at least 5 hotspots in 2019-2022).
-- Recent fire history is the strongest signal, so performance on cells with no recent fire is likely lower and has not yet been measured separately.
-- Weather comes from NASA POWER (MERRA-2 based, about 0.5° resolution), not from ground stations. Peatland extent is not modelled directly.
+- Recent fire history is the strongest signal in active fire zones, whereas environmental and peatland features drive early detection in unburned ("quiet") cells.
+- Weather comes from NASA POWER (MERRA-2 based, about 0.5° resolution), not from ground stations. Peatland coverage is aggregated at the *kabupaten* (regency) level rather than subsurface peat depth or water-table telemetry.
 - 2023 (validation) was a severe fire year, so validation scores are higher than test scores.
 - Trained and tested only on Sumatra and Kalimantan. Do not use it for other regions or fire types without retraining.
 

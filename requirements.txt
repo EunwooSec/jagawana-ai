@@ -9,3 +9,5 @@ tqdm
 joblib
 pyarrow
 streamlit
+geopandas
+shapely

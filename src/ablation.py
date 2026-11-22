@@ -3,12 +3,12 @@
 Feature-group ablation for the Jagawana AI fire-risk model.
 
 Questions answered:
-  1. How much do fire-history features and weather features each contribute?
-  2. How well can weather, season and location alone (no fire history)
+1. How much do fire-history features and weather features each contribute?
+2. How well can weather, season, location, and peatland data (no fire history)
      separate dangerous from safe conditions?
-  3. How does each model do in "quiet" cells that have not burned recently
+3. How does each model do in "quiet" cells that have not burned recently
      (no hotspot in the last 30 or 90 days)?
-  4. Do dryness anomalies (this period's rain, humidity and temperature
+4. Do dryness anomalies (this period's rain, humidity and temperature
      compared with the normal for the same cell and month) help?
 
 The "normal" values (climatology) are computed from TRAINING years only.
@@ -42,6 +42,7 @@ WEATHER = ["rain_7d", "rain_14d", "rain_30d", "rain_60d", "dry_streak",
            "tmax_7d", "rh_7d", "wind_7d"]
 SEASON = ["month_sin", "month_cos"]
 LOCATION = ["lat", "lon"]
+PEAT = ["peat_fraction", "peat_x_dry_streak"]
 ANOMALY_SOURCES = ["rain_30d", "rain_60d", "rh_7d", "tmax_7d"]
 ANOMALY = [f"{c}_anom" for c in ANOMALY_SOURCES]
 
@@ -49,9 +50,9 @@ ANOMALY = [f"{c}_anom" for c in ANOMALY_SOURCES]
 VARIANTS = [
     ("A", "Full model", FEATURES),
     ("B", "Fire history only", FIRE_HISTORY),
-    ("C", "No fire history (weather+season+location)", WEATHER + SEASON + LOCATION),
-    ("D", "Weather + season only", WEATHER + SEASON),
-    ("E", "No fire history + dryness anomalies", WEATHER + SEASON + LOCATION + ANOMALY),
+    ("C", "No fire history (weather+season+location+peat)", WEATHER + SEASON + LOCATION + PEAT),
+    ("D", "Weather + season + peat only", WEATHER + SEASON + PEAT),
+    ("E", "No fire history + dryness anomalies + peat", WEATHER + SEASON + LOCATION + PEAT + ANOMALY),
     ("F", "Full model + dryness anomalies", FEATURES + ANOMALY),
 ]
 

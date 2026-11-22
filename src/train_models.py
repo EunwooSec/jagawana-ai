@@ -64,6 +64,7 @@ FEATURES = [
     "rain_7d", "rain_14d", "rain_30d", "rain_60d", "dry_streak",
     "tmax_7d", "rh_7d", "wind_7d",
     "month_sin", "month_cos", "lat", "lon",
+    "peat_fraction", "peat_x_dry_streak",
 ]
 PERSIST = "Persistence baseline"
 LOGREG = "Logistic Regression"
@@ -200,7 +201,7 @@ def shap_outputs(model, x_test):
 
     try:
         import shap
-        shap.summary_plot(values, sample, show=False, max_display=18)
+        shap.summary_plot(values, sample, show=False, max_display=20)
         plt.gcf().savefig(FIG_DIR / "shap_summary.png", dpi=150, bbox_inches="tight")
     except Exception as error:  # the bar chart above still exists
         print("  (SHAP beeswarm plot skipped:", repr(error)[:150], ")")
@@ -324,7 +325,7 @@ def main():
     print("\nComputing SHAP explanations...")
     importance = shap_outputs(booster, x_te)
     print("Top drivers (mean |SHAP|):")
-    print(importance.head(8).round(3).to_string())
+    print(importance.head(10).round(3).to_string())
 
     # --- spatial holdout
     print("\n=== SPATIAL HOLDOUT (XGBoost, no lat/lon, test years only) ===")

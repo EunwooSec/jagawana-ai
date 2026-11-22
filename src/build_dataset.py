@@ -3,16 +3,17 @@
 Builds the Jagawana AI training dataset.
 
 Steps:
-  1. Load NASA FIRMS VIIRS (S-NPP) hotspots and keep reliable vegetation fires.
-  2. Aggregate hotspots into daily counts on a 0.5-degree grid over Sumatra
+1. Load NASA FIRMS VIIRS (S-NPP) hotspots and keep reliable vegetation fires.
+2. Aggregate hotspots into daily counts on a 0.5-degree grid over Sumatra
      and Kalimantan.
-  3. Select grid cells with fire history in the TRAINING years only
+3. Select grid cells with fire history in the TRAINING years only
      (2019-2022), so that no information from the test years is used.
-  4. Download daily weather for each selected cell from NASA POWER (cached on
+4. Download daily weather for each selected cell from NASA POWER (cached on
      disk, so the script can be stopped and restarted).
-  5. Build features (using only information up to day t) and the label
+5. Compute area-weighted peatland fraction per cell from kabupaten boundaries.
+6. Build features (using only information up to day t) and the label
      "at least one hotspot in the cell during days t+1 ... t+7".
-  6. Save the result to data/processed/dataset.parquet.
+7. Save the result to data/processed/dataset.parquet.
 
 Run from the project folder:
     python src\\build_dataset.py
@@ -20,9 +21,11 @@ Run from the project folder:
 import time
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
+from shapely.geometry import box
 
 # ----------------------------------------------------------------- settings
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +34,7 @@ WEATHER_DIR = RAW_DIR / "weather_power"
 PROC_DIR = ROOT / "data" / "processed"
 RESULTS_DIR = ROOT / "results"
 FIRMS_FILE = RAW_DIR / "fire_archive_SV-C2_830533.csv"
+PEAT_FILE = RAW_DIR / "spatial-metrics-indonesia-peat_area_kabupaten.geojson"
 
 START = "2019-01-01"
 END = "2025-12-31"
@@ -154,8 +158,45 @@ def get_weather(cells):
     return weather_by_cell
 
 
+# ------------------------------------------------------------ step 4b: peat
+def compute_peat_features(cells):
+    """Compute area-weighted peatland fraction (0 to 1) per 0.5-deg grid cell."""
+    if not PEAT_FILE.exists():
+        raise FileNotFoundError(
+            f"Missing peat file: {PEAT_FILE}\n"
+            "Place 'spatial-metrics-indonesia-peat_area_kabupaten.geojson' inside data/raw/."
+        )
+    print("\nComputing peatland fraction per grid cell...")
+    kab = gpd.read_file(PEAT_FILE).to_crs("EPSG:6933")
+    kab["geometry"] = kab.geometry.make_valid()
+    kab_area_ha = kab.geometry.area / 10_000.0
+    kab["peat_density"] = (
+        kab["peatland_area_hectares_2025"].fillna(0) / np.maximum(kab_area_ha, 1.0)
+    ).clip(0.0, 1.0)
+
+    grid_records = []
+    for i, j in cells:
+        lat0 = LAT_MIN + i * CELL
+        lon0 = LON_MIN + j * CELL
+        grid_records.append({
+            "cell_id": f"{i}_{j}",
+            "geometry": box(lon0, lat0, lon0 + CELL, lat0 + CELL),
+        })
+    grid = gpd.GeoDataFrame(grid_records, crs="EPSG:4326").to_crs("EPSG:6933")
+    grid["cell_area"] = grid.geometry.area
+
+    inter = gpd.overlay(grid, kab[["peat_density", "geometry"]], how="intersection", keep_geom_type=False)
+    inter["weighted_peat"] = inter.geometry.area * inter["peat_density"]
+
+    peat_by_cell = (
+        inter.groupby("cell_id")["weighted_peat"].sum()
+        / grid.set_index("cell_id")["cell_area"]
+    ).fillna(0.0).clip(0.0, 1.0)
+    return peat_by_cell.to_dict()
+
+
 # ----------------------------------------------------------- step 5: features
-def make_features(i, j, counts, nb_daily, weather, dates):
+def make_features(i, j, counts, nb_daily, weather, dates, peat_frac=0.0):
     """Features for one cell. Every feature uses only data up to day t."""
     c = pd.Series(counts[:, i, j], index=dates)
     nb = pd.Series(nb_daily[:, i, j], index=dates)
@@ -183,12 +224,14 @@ def make_features(i, j, counts, nb_daily, weather, dates):
     out["tmax_7d"] = w["T2M_MAX"].rolling(7).mean()
     out["rh_7d"] = w["RH2M"].rolling(7).mean()
     out["wind_7d"] = w["WS10M"].rolling(7).mean()
-    # Season and location
+    # Season, location, and peatland properties
     month = dates.month.values
     out["month_sin"] = np.sin(2 * np.pi * (month - 1) / 12)
     out["month_cos"] = np.cos(2 * np.pi * (month - 1) / 12)
     out["lat"] = LAT_MIN + (i + 0.5) * CELL
     out["lon"] = LON_MIN + (j + 0.5) * CELL
+    out["peat_fraction"] = float(peat_frac)
+    out["peat_x_dry_streak"] = out["peat_fraction"] * out["dry_streak"]
     out["cell_id"] = f"{i}_{j}"
 
     # Label: any hotspot in days t+1 ... t+7 (looks only forward, never a feature)
@@ -225,9 +268,13 @@ def main():
     print("\nDownloading weather from NASA POWER (cached, safe to stop and restart)...")
     weather_by_cell = get_weather(cells)
 
+    peat_by_cell = compute_peat_features(cells)
+
     print("\nBuilding features and labels...")
-    frames = [make_features(i, j, counts, nb_daily, weather_by_cell[(i, j)], dates)
-              for i, j in cells]
+    frames = [
+        make_features(i, j, counts, nb_daily, weather_by_cell[(i, j)], dates, peat_by_cell.get(f"{i}_{j}", 0.0))
+        for i, j in cells
+    ]
     data = pd.concat(frames)
     data.index.name = "date"
     data = data.reset_index()

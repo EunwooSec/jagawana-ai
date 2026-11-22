@@ -17,9 +17,11 @@
     "month_sin",
     "month_cos",
     "lat",
-    "lon"
+    "lon",
+    "peat_fraction",
+    "peat_x_dry_streak"
   ],
-  "threshold": 0.3222421705722809,
+  "threshold": 0.32540252804756165,
   "horizon_days": 7,
   "train_end": "2022-12-24",
   "validation": "2023",
